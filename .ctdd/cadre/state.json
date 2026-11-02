@@ -1,0 +1,50 @@
+{
+  "feature": "Cadre global OpenArbitre — spec, archi et découpe en stories",
+  "started_at": "2026-11-02T00:00:00Z",
+  "current_phase": "done",
+  "scope": "Cycle sans code : s'arrête après la phase 5. Le planner produit la découpe en stories ordonnées (socle → planning → decision diff). UX par story, pas au global.",
+  "phases": {
+    "1_story": {
+      "status": "done",
+      "file": ".ctdd/cadre/01_story.md"
+    },
+    "2_specs": {
+      "status": "done",
+      "file": ".ctdd/cadre/02_specs.md"
+    },
+    "3_archi": {
+      "status": "done",
+      "file": ".ctdd/cadre/03_archi.md"
+    },
+    "4_plan": {
+      "status": "done",
+      "file": ".ctdd/cadre/04_plan.md",
+      "version": 3
+    },
+    "5_da": {
+      "status": "done",
+      "file": ".ctdd/cadre/05_da_review.md",
+      "iteration": 3,
+      "verdict": "VALIDÉ (conditions F-40, F-41)"
+    },
+    "6_skeleton": {
+      "status": "skipped",
+      "file": null
+    },
+    "7_implementation": {
+      "status": "skipped",
+      "file": null
+    },
+    "8_review": {
+      "status": "skipped",
+      "file": null
+    }
+  },
+  "ddd_zone": "core",
+  "da_max_iterations": 3,
+  "closed_at": "2026-11-03",
+  "conditions": {
+    "F-40": "mesures du recalibrage, avant la soirée 1",
+    "F-41": "définir « local » au cycle de ST-30, avant ST-31"
+  }
+}
