@@ -46,5 +46,11 @@
   "conditions": {
     "F-40": "mesures du recalibrage, avant la soirée 1",
     "F-41": "définir « local » au cycle de ST-30, avant ST-31"
+  },
+  "gestes_en_attente": {
+    "S3-L": "Client OAuth Google perso + demande admin Workspace, à faire par Quentin le 2026-11-03 ; la date de demande fixe la borne de S3",
+    "gh": "Rebasculer gh sur quentinhaenn-ops (gh auth switch -h github.com -u quentinhaenn-ops)",
+    "S1-A": "Verdict rendu le 2026-11-03 : GO avec réserves, dans .ctdd/spikes/S1-A.md ; code d essai dans .claude/worktrees/agent-ac5860c27fb69a1ae/spikes/s1a/ (non fusionnable)",
+    "ST-01": "Spécificateur lancé par Quentin, sortie attendue dans .ctdd/stories/ST-01/02_specs.md"
   }
 }
