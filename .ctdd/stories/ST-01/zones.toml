@@ -1,0 +1,8 @@
+# Zones de ST-01 : format dans CONTRIBUTING.md. Un fichier non listé prend Full.
+Full = [
+  "crates/core/src/hlc.rs",
+  "crates/core/src/write.rs",
+  "crates/core/src/merge.rs",
+]
+Std = ["crates/core/src/clock.rs"]
+Gen = ["crates/cli/src/**"]
