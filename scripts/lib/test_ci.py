@@ -3,6 +3,7 @@
 Lancement : `python3 -m unittest scripts/lib/test_ci.py`.
 """
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -246,6 +247,25 @@ class TestMutation(unittest.TestCase):
     def test_rapport_trie_par_fichier(self):
         texte = mutation.rapport([Score("b.rs", "Full", 1, 1), Score("a.rs", "Full", 1, 1)])
         self.assertLess(texte.index("a.rs"), texte.index("b.rs"))
+
+
+FIXTURES = Path(__file__).parent / "fixtures" / "mutants"
+
+
+class TestFormatReel(unittest.TestCase):
+    """T-9 : `outcomes.json` réel de cargo-mutants 27.1.0 (relevé sur un crate jetable, R-3)."""
+
+    def charger(self, nom: str) -> dict:
+        return json.loads((FIXTURES / nom).read_text())
+
+    def test_issues_reelles(self):
+        liste = mutation.lire_issues(self.charger("outcomes_mixte.json"))
+        self.assertEqual([i.issue for i in liste], ["missed", "missed", "unviable", "unviable", "timeout"])
+        self.assertEqual(liste[0], Issue("src/lib.rs:2:32: replace borne -> bool with true", "src/lib.rs", "missed"))
+
+    def test_base_rouge_reelle(self):
+        with self.assertRaises(Rouge):
+            mutation.lire_issues(self.charger("outcomes_base_rouge.json"))
 
 
 ZONES_BASE = {".ctdd/stories/ST-01/zones.toml": ZONES_ST01}

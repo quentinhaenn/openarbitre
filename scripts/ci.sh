@@ -5,6 +5,8 @@ cd "$(dirname "$0")/.." || exit 1
 # shellcheck source=scripts/outils.env
 . scripts/outils.env
 
+# Pas de .pyc : un cache périmé fausserait les aides Python.
+export PYTHONDONTWRITEBYTECODE=1
 actions=false
 [ "${GITHUB_ACTIONS:-}" = true ] && actions=true
 rouge=0
