@@ -1,12 +1,14 @@
-# Plan d'implémentation — ST-01 : Fusion pure et fondations du dépôt (v2)
+# Plan d'implémentation — ST-01 : Fusion pure et fondations du dépôt (v3)
 
 ## Traçabilité
 - Specs : `.ctdd/stories/ST-01/02_specs.md`. Ses « Arbitrages de Quentin (2026-11-03) » font foi, dont **F-1 : `vu` = table par cible**.
 - Archi : `.ctdd/stories/ST-01/03_archi.md`. Ses arbitrages font foi : P-1, P-2, P-3, F-1, passe de simplification avant la review. Les écarts de ce plan à l'archi sont dans « Amendements à l'archi ». `03_archi.md` n'est pas réécrit.
-- Plan v1 : `history/04_plan_v1.md`. Revue DA v1 (BLOQUÉ, F-1 à F-20) : `05_da_review.md`. Arbitrages du plan v1 (Q-1, Q-2, F-9) : repris en fin de fichier.
+- Plan v1 : `history/04_plan_v1.md`, revue DA v1 : `history/05_da_review_v1.md` (BLOQUÉ, F-1 à F-20).
+- Plan v2 : `history/04_plan_v2.md`, revue DA v2 : `05_da_review.md` (PASSE AVEC RÉSERVES, F-1 à F-10, appelées ici **D-1 à D-10**).
+- Les arbitrages de chaque version sont repris en fin de fichier.
 - Cadre : `.ctdd/cadre/04_plan.md` § ST-01 ; `.ctdd/cadre/03_archi.md` § Graphe de dépendances (pour F-14).
-- Livré avec ce plan : `.ctdd/stories/ST-01/zones.toml` (inchangé depuis la v1).
-- Date : 2026-11-03 · Statut : DRAFT v2. Numérotation des tâches refaite : la v1 ne sert plus de référence.
+- Livré avec ce plan : `.ctdd/stories/ST-01/zones.toml`. Il est conforme à l'archi (`Gen = ["crates/cli/src/**"]`) depuis b588610, donc aucune modification (voir D-3).
+- Date : 2026-11-03 · Statut : DRAFT v3. Ce qui change depuis la v2 : section « Corrections v3 », A-1 (ordre de `Visee`), A-6, A-8 et A-12, puis T-1, T-2, T-6 à T-12 et T-14. Le moteur (A-1 à A-5, A-10, A-11) est inchangé, sauf l'ordre de `Visee` (D-4).
 
 ## Contexte technique
 - **Codebase** (relevée le 2026-11-03) :
@@ -24,10 +26,10 @@
   - aucun `HashMap` dans le cœur ;
   - états impossibles non représentables ;
   - aucune dépendance normale dans le cœur ;
-  - `ci.sh` est un exécuteur gelé, les contrôles vivent dans `scripts/ci.d/`.
+  - `ci.sh` est un exécuteur, les contrôles vivent dans `scripts/ci.d/`. Tout `scripts/` et tout `.github/` sont gardés par le juge (A-8), qui s'exécute depuis `main`.
   - Les ordres contractuels sont ceux de l'amendement A-4, pas « tous les `Ord` dérivés ».
 
-## Correspondance failles → corrections
+## Correspondance failles DA v1 → corrections (v2, statut mis à jour en v3)
 
 | Faille | Correction retenue (forme la plus simple qui ferme la faille) | Où | Statut |
 |---|---|---|---|
@@ -37,9 +39,9 @@
 | F-4 | Le journal garde **toutes** les écritures d'une identité. L'anomalie devient une fonction de `S` | A-3 ; T-5 | Levée. Effet de bord à confirmer : Q-3 |
 | F-5 | Un seul ordre écrit par sortie. Les `Ord` dérivés ne sont contractuels que sur les clés | A-4 ; T-5, T-6 | Levée |
 | F-6 | Features écrites dépendance par dépendance. Vérification ponctuelle par une crate jetable qui hérite des huit | A-5 ; T-1 | Levée |
-| F-7 | (c) sans exemption de `clock.rs`, avec les motifs `UNIX_EPOCH` et `env::` en plus | A-6 ; T-8 | Levée (reste : obfuscation volontaire, hors périmètre) |
+| F-7 | Remplacé en v3 : le cœur est `#![no_std]` (A-6, D-7) | A-6 ; T-1, T-8 | Levée |
 | F-8 | Périmètre fixé : `mutants::skip` dans `crates/**/*.rs`, et tout fichier `mutants.toml` du dépôt | A-7 ; T-10 | Levée |
-| F-9 | Contrôle `05-st01-juge.sh` (arbitrage F-9) | A-8 ; T-9, T-10, T-11 | Levée (restes : Q-8) |
+| F-9 | Remplacé en v3 : workflow `juge.yml` exécuté depuis `main` (A-8, D-1) | A-8 ; T-11 | Levée (restes : Q-8) |
 | F-10 | `l < 2^53` vérifié à la validation et à l'émission | A-11 ; T-3, T-4 | (2) levée. (1), compteur saturé reçu : **acceptation proposée**, Q-4 |
 | F-11 | `Journal::ecrire` est le seul chemin d'une écriture locale, et `vu_pour` devient privée | A-2 ; T-5 | Levée pour les surfaces. Un lot forgé à la main reste possible : Q-6 |
 | F-12 | Comportement fixé et testé : `présente`, plus un conflit. Pas de validation ajoutée | T-6 | **Acceptation proposée**, Q-5 |
@@ -52,13 +54,28 @@
 | F-19 | Démonstration « test en échec » | T-12 | Levée |
 | F-20 | Conflits par requête d'intervalle sur le journal trié : `O(n log n + conflits)` | A-10 ; T-6 | Levée |
 
+## Corrections v3 (DA v2)
+
+| Faille | Correction retenue | Où | Statut |
+|---|---|---|---|
+| D-1 | Un juge séparé, `juge.yml` sur `pull_request_target`, qui n'exécute **que** le code de `main`. Le code de la PR n'est lu que comme données (`git diff`, `git show`). Tout `.github/` et tout `scripts/` sont protégés, ajouts compris, sauf avec le label `ci-change`. Les trois contre-exemples deviennent des démonstrations | A-8 ; T-11, T-12, T-14 | Levée |
+| D-2 | Le juge compare la **zone effective** de chaque `.rs` présent à la base, défaut `Full` compris, entre la base et la tête. Elle baisse ⇒ `rouge`. Il ne compare plus les couples `(motif, zone)` | A-8 ; T-11, T-12 | Levée |
+| D-3 | **Sans objet sur les faits** : `zones.toml` contient `Gen = ["crates/cli/src/**"]` depuis b588610 (plan v1), et `main.rs` est donc `Gen`, informatif. Ajout d'un critère explicite en T-10 | T-10 | Levée |
+| D-4 | `Visee` place la suppression **avant** les champs. À marque égale, le champ a le rang le plus haut : la retenue du conflit est le champ, ce qui concorde avec `présente`. Le test F-12 vérifie le sens de la paire | A-1 ; T-6 | Levée |
+| D-5 | Le check requis est posé par un `PUT` complet de la protection, qui crée le sous-objet, avec des booléens envoyés par `-F` | T-14 | Levée |
+| D-6 | Amendement d'une ligne au corps de l'archi : jamais moins de jeux | A-12 | Levée |
+| D-7 | Le cœur est `#![no_std]` (plus `alloc`). Le compilateur interdit l'heure, `env`, `fs`, `net`, `process` et `thread`. La règle (c) se réduit à la présence de `#![no_std]` et à l'absence de `extern crate std`. Il n'y a plus de recherche textuelle, donc plus de faux positif | A-6 ; T-1, T-8 | Levée, **à confirmer** : Q-11 |
+| D-8 | **Acceptation proposée** : ST-01 n'a pas de synchronisation au fil de l'eau. Un `ponytail:` dans `fusionner` renvoie à ST-19 | T-6 | Q-12 |
+| D-9 | **Acceptation proposée** : l'anomalie est vraie, puisque la copie est corrompue. Le contrat de ST-02 devient « aller-retour exact d'une `Ecriture` » | T-2 | Q-13 |
+| D-10 | Égalité précisée : la concaténation des `nouveaux_conflits` ne contient aucun doublon et, en ensemble, égale `conflits()` | T-7 | Levée |
+
 ## Amendements à l'archi
 
 Ces amendements remplacent, dans `03_archi.md`, les passages cités. L'orchestrateur les y reporte après arbitrage. Rien d'autre ne change dans l'archi.
 
 ### A-1 : `vu` par visée (F-1)
 Remplace : « `vu : Option<Marque>` », « Portée de `vu` », et la ligne `Cible` du tableau des types.
-- `Visee = Champ(Champ) | Suppression`, `Ord` dérivé (les champs avant la suppression). `Cible = { donnee: IdDonnee, visee: Visee }`.
+- `Visee = Suppression | Champ(Champ)`, `Ord` dérivé : la suppression avant les champs (v3, D-4). À marque égale, un champ a donc un rang plus haut qu'une suppression, et la retenue d'un conflit F-12 est le champ, comme la projection (`présente`). `Cible = { donnee: IdDonnee, visee: Visee }`.
 - `Vu = BTreeMap<Visee, Marque>`. La clé omet la donnée : toutes les entrées portent sur la donnée de l'écriture, et une entrée sur une autre donnée n'est pas représentable.
 - `Ecriture = { donnee, quoi, marque, vu: Vu, auteur }`.
 - Contenu de `vu`, calculé par le journal (A-2) :
@@ -105,12 +122,13 @@ Remplace : la colonne « Déclaration au workspace » et la phrase « le `Cargo.
 - Le `Cargo.lock` ne fait foi que pour les dépendances héritées.
 - Les huit déclarations sont vérifiées **une fois** en T-1, par une crate jetable non versionnée qui les hérite toutes, puis à leur premier héritage réel. Aucun contrôle permanent n'est ajouté : une déclaration ne change que par amendement du socle.
 
-### A-6 : pureté du cœur (F-7)
-Remplace la règle (c) de `graphe.py`.
-- Elle s'applique à toutes les sources de `crates/{core,plan}/src`, **sans exemption**.
-- Motifs recherchés : `SystemTime`, `Instant`, `UNIX_EPOCH`, `::now(`, `env::`.
-- `HorlogeSimulee` ne contient aucun de ces motifs : `fn now(` n'est pas `::now(`. L'adaptateur système vivra hors du cœur (ST-03).
-- `env::` couvre la lecture de `TZ` et de `LANG`, c'est-à-dire la matrice US-1, cas 9.
+### A-6 : pureté du cœur (F-7, v3 : D-7)
+Remplace la règle (c) de `graphe.py`, et la recherche textuelle de la v2.
+- `crates/core/src/lib.rs` commence par `#![no_std]` et `extern crate alloc;`. Les collections viennent d'`alloc` (`alloc::collections::BTreeMap`, `alloc::vec::Vec`), et `Cell` de `core::cell`.
+- Sans `std`, `SystemTime`, `Instant`, `std::env`, `std::fs`, `std::net`, `std::process` et `std::thread` ne compilent pas. C'est le compilateur qui ferme le trou, commentaires et identifiants compris.
+- Règle (c) : pour chaque crate de `{arbitre-core, arbitre-plan}` présente, son `src/lib.rs` contient la ligne `#![no_std]`, et aucune de ses sources ne contient `extern crate std`. Sinon ⇒ `rouge`.
+- Les tests d'intégration (`crates/core/tests/`) sont des crates à part : ils gardent `std` et `proptest`.
+- Matrice US-1, cas 9 (`TZ`, `LANG`) : `std::env` n'est pas accessible.
 
 ### A-7 : canaux d'exclusion de mutation (F-8)
 Remplace : « `50-st01-mutation.sh` les recherche (dépôt et `.cargo/mutants.toml`) ». Le contrôle est `rouge` si l'une de ces conditions est vraie :
@@ -119,19 +137,28 @@ Remplace : « `50-st01-mutation.sh` les recherche (dépôt et `.cargo/mutants.to
 
 `--exclude` et `exclude_re` ne peuvent apparaître que dans la ligne de commande de `50-st01-mutation.sh`, que protège A-8. La documentation n'est pas fouillée.
 
-### A-8 : contrôle « juge touché » (F-9, arbitrage)
-Complète « CI : arborescence et contrat ».
-- **Fichier** : `scripts/ci.d/05-st01-juge.sh`. ST-01 prend les numéros 05 à 50, et les stories suivantes ≥ 60, comme avant.
-- **Fichiers protégés** : `.github/workflows/*`, `scripts/ci.sh`, `scripts/outils.env`, `scripts/ci.d/*-st01-*`, `scripts/lib/graphe.py`, `scripts/lib/mutation.py`.
-- **Règle** :
-  - une modification, une suppression ou un renommage d'un fichier protégé dans `CI_BASE...CI_HEAD` ⇒ `rouge`, avec la liste des fichiers. Un ajout reste libre : un nouveau contrôle ou une nouvelle aide dans `scripts/lib/`, et ST-01 elle-même.
-  - pour chaque `.ctdd/stories/*/zones.toml` présent à la base, chaque couple `(motif, zone)` doit rester dans le même fichier à la tête, avec une zone au moins aussi exigeante. Sinon ⇒ `rouge`. Ajouter une zone ou un motif reste libre.
-- **Label `ci-change`** :
-  - avec le label, les deux règles précédentes ne rendent plus `rouge`. Le contrôle liste quand même les fichiers ;
-  - en échange, la PR ne doit toucher aucun fichier sous `crates/`, sinon ⇒ `rouge`. C'est ce qui la rend « dédiée ».
-  - Le label arrive par `CI_LABELS` : variable d'environnement, liste séparée par des virgules. Le workflow la remplit, et on la pose à la main en local. `ci.sh` n'est pas modifié.
-- **Workflow** : `pull_request` seulement (arbitrage Q-1), avec les types `opened, synchronize, reopened, labeled, unlabeled`, pour qu'un label relance le check.
-- La logique sur les zones va dans `mutation.py`, qui détient déjà la lecture du format.
+### A-8 : juge séparé, exécuté depuis `main` (F-9 ; v3 : D-1, D-2, arbitrage DA v2)
+Complète « CI : arborescence et contrat ». Remplace `05-st01-juge.sh` de la v2 : `ci.d/` ne contient plus que les contrôles 10 à 50 de l'archi.
+- **Fichiers** :
+  - `.github/workflows/juge.yml`, un job nommé **`juge`** ;
+  - `scripts/lib/juge.py`, Python ≥ 3.13, bibliothèque standard. Il importe de `mutation.py` la lecture des zones et la résolution de la zone d'un fichier : un seul code pour le format.
+- **Exécution** :
+  - déclencheur `pull_request_target`, types `opened, synchronize, reopened, labeled, unlabeled` ;
+  - `permissions: contents: read`, aucun secret ;
+  - `checkout` **de la base** (défaut de `pull_request_target`), `fetch-depth: 0`, `persist-credentials: false` ;
+  - `git fetch origin refs/pull/<n>/head` : la tête n'entre que dans la base d'objets, jamais dans l'arbre de travail ;
+  - `python3 scripts/lib/juge.py "$BASE" "$HEAD"`, avec `BASE`, `HEAD` et `CI_LABELS` passés par `env:`, jamais interpolés dans `run:`.
+  - Aucun fichier de la PR n'est exécuté ni importé. `juge.py` en lit seulement des chemins (`git diff`) et des `zones.toml` (`git show`, puis `tomllib`).
+- **Règles**, sur `MB = git merge-base BASE HEAD` :
+  1. **Fichiers protégés** : tout chemin de `git diff --name-only --no-renames MB HEAD` qui commence par `.github/` ou `scripts/`, qu'il soit ajouté, modifié ou supprimé. Un renommage compte comme une suppression plus un ajout.
+  2. **Zones abaissées** : pour chaque `*.rs` de `git ls-tree -r --name-only MB`, sa zone effective (le plus exigeant des motifs qui le couvrent, `Full` par défaut, toutes les `.ctdd/stories/*/zones.toml` lues) se calcule avec les déclarations de `MB`, puis avec celles de `HEAD`. Si elle baisse, le fichier est listé. Un `zones.toml` de la tête illisible ⇒ `rouge`, avec un message qui le nomme.
+  - Sans le label `ci-change`, une liste non vide ⇒ `rouge`. Les fichiers sont listés dans le message.
+  - **Avec le label** : les listes sont affichées, sans rendre `rouge`. En revanche, la PR ne doit toucher aucun chemin sous `crates/`, sinon ⇒ `rouge` : c'est ce qui la rend « dédiée ».
+- `juge` devient un check requis, à côté de `ci` (T-14).
+- **Ce que la règle 2 ferme (D-2)** : `Std = ["crates/core/src/**"]` ajouté par ST-05 fait passer `lib.rs` de `Full` à `Std` ⇒ `rouge`. En revanche, un motif qui ne couvre que des fichiers nouveaux reste libre.
+- **Limite** : la PR de ST-01 n'est pas jugée, parce que `juge.yml` n'existe pas encore sur `main`. C'est la PR fondatrice : Quentin la relit. Le juge s'applique dès la PR suivante.
+- **Écart accepté à AC-6.6** (arbitrage DA v2) : ajouter un contrôle dans `ci.d/` passe par une PR dédiée avec le label.
+- Local : `CI_LABELS=… python3 scripts/lib/juge.py <base> <head>` (démonstrations de T-12). `ci.sh` ne l'appelle pas.
 
 ### A-9 : arêtes entre composants (F-14)
 Remplace la règle (a) de `graphe.py`. Chaque crate a une table d'autorisations : l'ensemble des composants atteignables, transitivement, sur toutes les sortes de dépendances.
@@ -167,6 +194,9 @@ Complète `Marque` et `valider`.
 - `valider` refuse `marque.l ≥ L_MAX`, avec la raison `MarqueHorsBornes`. Les entrées de `vu` sont couvertes par `vu < marque`.
 - `emettre` rend `HorlogeEpuisee` si `c` sature, **ou** si `l' ≥ L_MAX` : une seule erreur (renommage de `CompteurEpuise`).
 
+### A-12 : temps de mutation (F-17, D-6)
+Remplace, dans « Temps de mutation », la phrase « on réduit les jeux dans un profil de mutation, pas en zone Full courante » par : « on augmente `--jobs`, puis on répartit par `--shard` en matrice ; jamais moins de jeux (K-7.5) ».
+
 ## Analyse pré-plan
 
 ### Over-engineering détecté (et écarté)
@@ -181,7 +211,7 @@ Complète `Marque` et `valider`.
 - **Démonstration des secrets** : elle se fait en local seulement, sur une branche jetable jamais envoyée.
 - **Démonstration d'arêtes** : `arbitre-plan` et `arbitre-diff` n'existent pas encore. On utilise des crates factices sur une branche jetable.
 - **Format de cargo-mutants 27** : non vérifié. T-9 part d'une exécution réelle.
-- **Check requis avant que le workflow existe** : une protection qui exige `ci` dès T-0 bloquerait toute PR de documentation jusqu'à la fusion de ST-01, puisque le check ne serait jamais rapporté. La protection se pose donc en deux temps : T-0 puis T-14 (Q-9).
+- **Check requis avant que le workflow existe** : une protection qui exige `ci` dès T-0 bloquerait toute PR de documentation jusqu'à la fusion de ST-01, puisque le check ne serait jamais rapporté. La protection se pose donc en deux temps : T-0, puis T-14 **après** la fusion de ST-01 (Q-9). Avant cette fusion, `juge` ne peut pas être rapporté, puisqu'il s'exécute depuis `main`.
 - **Graine fixée** : les 1 000 jeux sont les mêmes à chaque exécution. L'exploration ne s'étend que si l'on change la graine, par une PR délibérée. C'est le prix de F-3.
 
 ### Risques identifiés
@@ -198,6 +228,8 @@ Complète `Marque` et `valider`.
 | R-8 | `ProptestConfig::rng_seed` (`RngSeed::Fixed`) absent de proptest 1.12 | Basse | Pas de graine fixe | Vérifié au Skeleton. Repli : `TestRunner::new_with_rng(config, TestRng::from_seed(ChaCha, …))` dans `support/` |
 | R-9 | `aws-lc-sys` (via `reqwest`/rustls) ne compile pas en local pendant la vérification ponctuelle de T-1 | Moyenne | T-1 bloquée sur un outil C | Relevé dans le rapport. C'est sans effet sur ST-01, puisqu'aucune crate n'hérite de `reqwest`. Bascule `ring` possible (arbitrage P-1) |
 | R-10 | Délai d'attente des mutants dépendant de la machine (MANQUE-ST01-8) : un mutant lent peut être « détecté » en CI et « manqué » en local | Basse | Score différent entre local et CI | **Accepté** (reste de F-3). En pratique, seuls les mutants qui bouclent atteignent le délai. Écart constaté ⇒ `--timeout` explicite dans `50-st01-mutation.sh`, par PR `ci-change` |
+| R-11 | `juge.yml` modifié plus tard pour extraire la tête dans l'arbre de travail : `pull_request_target` exécuterait alors du code de PR avec les droits de la base | Basse | Juge contournable | Interdit en commentaire d'une ligne dans `juge.yml`, et rappelé dans `CONTRIBUTING.md`. Toute modification de `juge.yml` passe par `ci-change`, donc par Quentin |
+| R-12 | `#![no_std]` gêne une story suivante : `jiff` dans le cœur en ST-04 (`Clock::fuseau`), ou `arbitre-plan` | Moyenne | Amendement d'A-6 | `jiff` sans features par défaut vise `no_std` + `alloc`, à vérifier en ST-04. Repli : revenir à la règle textuelle de la v2 par une PR `ci-change` (Q-11) |
 
 ## Tâches
 
@@ -231,7 +263,7 @@ Convention C-TDD pour les tâches Core / Full : le Skeleton pose d'abord les typ
   - `Cargo.toml` racine : `rust-version = "1.99"` ; `[workspace.dependencies]` **selon le tableau d'A-5** ;
   - `crates/core/Cargo.toml` : aucune `[dependencies]` ; `[dev-dependencies] proptest = { workspace = true }` ; `[features] sim = []` ;
   - `crates/cli/Cargo.toml` : retrait de `chrono`, `clap` garde sa version locale ; `main.rs` = un parseur clap dérivé (`--version`, `--help`) ;
-  - `core/src/lib.rs` vidé de `add` ;
+  - `core/src/lib.rs` vidé de `add`, puis `#![no_std]` et `extern crate alloc;` (A-6) ;
   - `Cargo.lock` régénéré.
   - **Vérification ponctuelle (A-5)** :
     - créer `crates/zz-verif-deps` (bibliothèque vide), qui hérite des huit dépendances avec `workspace = true`, plus `std` pour `serde` ;
@@ -260,8 +292,9 @@ Convention C-TDD pour les tâches Core / Full : le Skeleton pose d'abord les typ
     - le rappel : une nouvelle dépendance commune est un amendement du socle.
   - **`CONTRIBUTING.md`** :
     - règle du `Cargo.lock` : prendre celui de `main`, puis `cargo check --workspace` ;
-    - ajout d'un contrôle : `ci.d/NN-stxx-<sujet>.sh` avec NN ≥ 60, aides dans `scripts/lib/` ;
-    - fichiers protégés et label `ci-change` (A-8) : posé par Quentin seul, PR sans `crates/` ;
+    - ajout d'un contrôle : `ci.d/NN-stxx-<sujet>.sh` avec NN ≥ 60, aides dans `scripts/lib/`, **par une PR dédiée avec le label** (écart à AC-6.6, A-8) ;
+    - juge (A-8) : tout `.github/` et tout `scripts/` protégés, ajouts compris ; zone effective qui ne baisse pas ; label `ci-change` posé par Quentin seul, et jamais par un agent ; PR sans `crates/` ; `juge.yml` n'extrait jamais la tête (R-11) ;
+    - contrat de désérialisation pour ST-02 : l'aller-retour d'une `Ecriture` est exact, `vu` compris. Sinon une copie réémise est une anomalie (D-9, Q-13) ;
     - formats de `zones.toml` (motifs `full_match`), de `mutants_equivalents.toml` et de `.gitleaksignore` ;
     - canaux d'exclusion interdits (A-7) ;
     - écriture locale par `Journal::ecrire`, `fusionner` réservé aux lots reçus (A-2) ;
@@ -355,11 +388,12 @@ Convention C-TDD pour les tâches Core / Full : le Skeleton pose d'abord les typ
 - **Critère de complétion** :
   - matrice US-2, cas 1 à 4, 6 à 8 et 10 ; colonnes « conflit » de la matrice US-3, cas 1 à 6 ;
   - **contre-exemple F-1**, en test nommé : B écrit `titre` ; A écrit `échéance`, puis supprime ⇒ un conflit `(d, titre, retenue = suppression, écartée = titre)` ;
-  - **cas F-12**, en test nommé : un même appareil pose la même marque sur une suppression et sur un champ de `d` ⇒ `présente`, et un conflit (comportement de Q-5) ;
+  - **cas F-12**, en test nommé : un même appareil pose la même marque sur une suppression et sur un champ de `d` ⇒ `présente`, et un conflit (comportement de Q-5) avec **retenue = le champ, écartée = la suppression** (D-4) ;
   - collision de valeurs différentes ⇒ un conflit (Q-3) ;
   - la seconde réception d'un lot rend trois listes vides ;
   - cas 8 de la matrice US-1 **en un seul lot reçu** : 10 000 écritures séquentielles, en moins de 2 s en debug ;
-  - propriété : les trois listes de `Rapport` et `conflits()` sont triées selon A-4 (INV-ST01-3).
+  - propriété : les trois listes de `Rapport` et `conflits()` sont triées selon A-4 (INV-ST01-3) ;
+  - `fusionner` porte la ligne `// ponytail: recalcul par donnée touchée, quadratique sur un flux d'écritures isolées — voir ST-19` (D-8, Q-12).
 - **Effort estimé** : agent 20 min · arbitrage 5 min (cas de matrice ambigu à l'exécution)
 
 ### T-7 : Appareils simulés, oracle causal et propriétés de convergence
@@ -376,7 +410,7 @@ Convention C-TDD pour les tâches Core / Full : le Skeleton pose d'abord les typ
     - `attendus(S) = { {w, x} | ¬a_vu*(w, x) ∧ ¬a_vu*(x, w) ∧ exclusives ∧ valeurs différentes }`, normalisés selon A-4.
     - C'est la règle arbitrée (« plus grande marque connue de l'auteur, cible par cible »), évaluée sur ce que l'appareil savait réellement, et non sur le champ `vu` transporté. L'égalité implique aussi la correction au sens direct : un conflit rendu ⇒ aucun des deux auteurs ne connaissait l'autre écriture.
   - **Propriétés** (1 000 jeux chacune) :
-    - **concurrentes ⇔ conflit** : après **chaque** action, sur **chaque** appareil, `conflits()` = `attendus(S_appareil)` ; la concaténation des `nouveaux_conflits` d'un appareil = `conflits()` ;
+    - **concurrentes ⇔ conflit** : après **chaque** action, sur **chaque** appareil, `conflits()` = `attendus(S_appareil)`. La concaténation des `nouveaux_conflits` d'un appareil ne contient aucun doublon et, convertie en `BTreeSet`, égale `conflits()` converti de même (D-10) ;
     - convergence : en fin de scénario, `R(S)` est identique sur tous les appareils (PROP-ST01-2) ;
     - commutativité, associativité, idempotence et neutre sur des lots tirés des scénarios, avec suppressions (INV-5, AC-3.5) ;
     - déterminisme sous permutation de l'ordre interne d'un lot (INV-ST01-1) ;
@@ -405,10 +439,11 @@ Convention C-TDD pour les tâches Core / Full : le Skeleton pose d'abord les typ
   - matrice US-5, cas 2 à 5, et matrice US-6, cas 5 à 7 ;
   - `calendar → plan` accepté, `relay → plan` refusé ;
   - crate inconnue ⇒ `rouge` ;
-  - `UNIX_EPOCH.elapsed()` et `std::env::var` dans `clock.rs` ⇒ `rouge`, mais `fn now(&self)` accepté.
+  - règle (c) (A-6) : `lib.rs` sans `#![no_std]` ⇒ `rouge` ; `extern crate std;` dans `clock.rs` ⇒ `rouge` ; `#![no_std]` présent et une doc « /// Instant courant » ⇒ vert.
+  - Vérification ponctuelle consignée au rapport : `std::fs::read` ajouté dans `merge.rs` ⇒ `cargo check -p arbitre-core` échoue.
 - **Effort estimé** : agent 15 min · arbitrage 0
 
-### T-9 : Aide `mutation.py` (zones, équivalents, scores, rapport, zones abaissées)
+### T-9 : Aide `mutation.py` (zones, équivalents, scores, rapport)
 - **Zone DDD** : Supporting (outillage)
 - **Réf specs** : RG-ST01-7.1, 7.2, 7.3 ; INV-ST01-15, 16 ; AMB-ST01-4 ; MANQUE-ST01-1, 5, 8 ; C-7.4 ; AC-7.1 à 7.4, AC-7.6 ; F-9
 - **Dépendances** : T-0 (cargo-mutants installé). **Parallélisable avec T-3 à T-8.**
@@ -422,12 +457,11 @@ Convention C-TDD pour les tâches Core / Full : le Skeleton pose d'abord les typ
     - correspondance des issues (`caught`/`timeout` = détecté, `unviable` exclu, base rouge ⇒ `rouge`) ;
     - score par fichier, neutre si rien n'est compté, `≥` seuil pour passer ; `Gen` informatif ;
     - rapport Markdown trié par fichier, **sans durée ni horodatage** (comparé à l'octet près en T-14) ;
-    - `zones_abaissees(base)` (A-8) : lit les `zones.toml` de la base par `git show`.
+    - la lecture des zones prend des **contenus** (`{chemin: texte TOML}`) et non des chemins sur disque, pour que `juge.py` lui passe ceux de `git show` (A-8).
 - **Livrable** : `scripts/lib/mutation.py`, sa partie de `test_ci.py`, `scripts/lib/fixtures/mutants/`.
 - **Critère de complétion** : `test_ci.py` vert, avec :
   - matrice US-7, cas 1 à 11 ;
   - cinq exemples de motifs : `*` ne traverse pas `/` ; `**` couvre 0 et n segments ; motif exact ; motif sans correspondance ;
-  - `zones_abaissees` : motif retiré ⇒ signalé ; `Full` → `Std` ⇒ signalé ; `Std` → `Full` et motif ajouté ⇒ rien ; fichier supprimé ⇒ signalé ;
   - une sortie illisible ⇒ `rouge`.
 - **Effort estimé** : agent 20 min · arbitrage 0
 
@@ -444,46 +478,60 @@ Convention C-TDD pour les tâches Core / Full : le Skeleton pose d'abord les typ
     - chaque `ci.d/*.sh` exécuté par `bash`, triés avec `LC_ALL=C` ; tous sont exécutés ; `ci.d/` vide ⇒ `rouge` ;
     - sous Actions : `::group::`, `::error::` et `$GITHUB_STEP_SUMMARY`.
   - **`ci.d/`** :
-    - `05-st01-juge.sh` (A-8) ;
     - `10-st01-tests.sh` (`cargo test --workspace --all-features --locked`, plus `unittest`) ;
     - `20-st01-navigateur.sh` ;
     - `30-st01-graphe.sh` ;
     - `40-st01-secrets.sh` ;
     - `50-st01-mutation.sh` (A-7 pour les canaux d'exclusion).
   - `.gitleaksignore` vide.
-- **Livrable** : `scripts/ci.sh`, `scripts/outils.env`, `scripts/ci.d/{05,10,20,30,40,50}-st01-*.sh`, `.gitleaksignore`.
+- **Livrable** : `scripts/ci.sh`, `scripts/outils.env`, `scripts/ci.d/{10,20,30,40,50}-st01-*.sh`, `.gitleaksignore`.
 - **Critère de complétion** :
-  - `scripts/ci.sh` vert en local sur la branche de ST-01 une fois T-7 fait (avant, seul `50` peut être rouge). `05` est vert, puisque la base n'a aucun fichier protégé ;
+  - `scripts/ci.sh` vert en local sur la branche de ST-01 une fois T-7 fait (avant, seul `50` peut être rouge) ;
+  - `target/ci/mutation.md` classe `crates/cli/src/main.rs` en `Gen`, avec un verdict informatif (D-3) ;
   - matrice US-6, cas 4, 9 (PR documentaire : vert, mutation neutre), 10 (`ci.d/60-demo.sh` avec `exit 1` : exécuté, nommé, `rouge`, puis retiré) et 11 (cargo-mutants hors du `PATH` ⇒ `rouge` explicite) ;
   - `CONTRIBUTING.md` contient `mutants::skip` et `exclude_re` sans faire rougir `50` (F-8).
 - **Effort estimé** : agent 20 min · arbitrage 0
 
-### T-11 : Workflow GitHub Actions
-- **Zone DDD** : Generic
-- **Réf specs** : C-6.6 ; RG-ST01-6.1 ; C-7.4 ; arbitrages Q-1, F-9
+### T-11 : Workflows GitHub Actions et juge
+- **Zone DDD** : Generic (`ci.yml`, `juge.yml`) · Supporting, outillage (`juge.py`)
+- **Réf specs** : C-6.6 ; RG-ST01-6.1 ; RG-ST01-7.2 ; C-7.4 ; arbitrages Q-1, F-9, DA v2 F-1 ; D-1, D-2
 - **Dépendances** : T-10, T-0
-- **Description** : `.github/workflows/ci.yml`.
-  - Un job nommé **`ci`** (nom du check requis en T-14), sur `ubuntu-latest`.
-  - Déclencheur : `pull_request` (types d'A-8).
-  - `permissions: contents: read`.
-  - Étapes :
-    - `checkout` avec `fetch-depth: 0` ;
-    - toolchain lue dans `rust-toolchain.toml` ;
-    - `setup-python` 3.13 ;
-    - cargo-mutants et gitleaks en binaires précompilés, aux versions d'`outils.env` ;
-    - cache Cargo ;
-    - `CI_BASE=${{ github.event.pull_request.base.sha }} CI_LABELS=${{ join(github.event.pull_request.labels.*.name, ',') }} scripts/ci.sh` ;
-    - `target/ci/` publié en artefact, `if: always()`.
-  - Actions épinglées par SHA.
-- **Livrable** : `.github/workflows/ci.yml`.
-- **Critère de complétion** : vérifié en T-14. Pas de tag dans les `uses:` (`grep -E 'uses: .*@v[0-9]'` vide).
-- **Effort estimé** : agent 10 min · arbitrage 0
+- **Description** :
+  - **`.github/workflows/ci.yml`** :
+    - un job nommé **`ci`**, sur `ubuntu-latest` ;
+    - déclencheur `pull_request` avec ses types par défaut (le label ne concerne plus que le juge) ;
+    - `permissions: contents: read`.
+    - Étapes :
+      - `checkout` avec `fetch-depth: 0` ;
+      - toolchain lue dans `rust-toolchain.toml` ;
+      - `setup-python` 3.13 ;
+      - cargo-mutants et gitleaks en binaires précompilés, aux versions d'`outils.env` ;
+      - cache Cargo ;
+      - `scripts/ci.sh`, avec `CI_BASE` passé par `env:` depuis `github.event.pull_request.base.sha` ;
+      - `target/ci/` publié en artefact, `if: always()`.
+  - **`scripts/lib/juge.py`** (A-8) :
+    - une fonction pure `juger(changes, zones_base, zones_tete, fichiers_rs, labels) -> (rouge: bool, lignes)` ;
+    - une enveloppe `git` (`merge-base`, `diff --name-only --no-renames`, `ls-tree`, `show`) ;
+    - la partie de `test_ci.py` qui teste `juger` sur des données en mémoire.
+  - **`.github/workflows/juge.yml`** : selon A-8, avec la ligne `# Ne jamais extraire la tête de la PR : pull_request_target (R-11)`.
+  - Actions épinglées par SHA dans les deux workflows.
+- **Livrable** : `.github/workflows/{ci,juge}.yml`, `scripts/lib/juge.py`, sa partie de `scripts/lib/test_ci.py`.
+- **Critère de complétion** :
+  - `test_ci.py` vert, avec les cas suivants pour `juger` :
+    - un ajout, une modification ou une suppression sous `scripts/` ou `.github/` ⇒ `rouge` ;
+    - `.ctdd/` ou `crates/` seuls ⇒ vert ;
+    - `Full` → `Std` ⇒ `rouge` ; motif `Std` large qui couvre un `.rs` sans motif ⇒ `rouge` ; motif ajouté sur un fichier absent de la base ⇒ vert ; `Std` → `Full` ⇒ vert ; `zones.toml` de la tête illisible ⇒ `rouge` ;
+    - label et fichiers protégés seuls ⇒ vert, liste affichée ; label et `crates/` touché ⇒ `rouge` ;
+  - `grep -E 'uses: .*@v[0-9]'` vide sur les deux workflows ;
+  - `juge.yml` ne contient aucun `ref:` sur l'étape `checkout`, et aucun `${{` dans un `run:` ;
+  - le comportement sur GitHub est vérifié en T-14.
+- **Effort estimé** : agent 20 min · arbitrage 0
 
 ### T-12 : Démonstrations rouges (branches jetables, jamais envoyées)
 - **Zone DDD** : Generic
 - **Réf specs** : AC-6.4, AC-6.5 ; matrice US-5, cas 2 et 3 ; matrice US-6, cas 2, 3, 5, 6, 8 ; matrice US-7, cas 1 ; arbitrage F-9 ; F-19
-- **Dépendances** : T-10
-- **Description** : sur des branches locales jetables, lancer `scripts/ci.sh` (ou le contrôle seul) après chaque modification ci-dessous, puis copier la sortie dans le rapport d'implémentation.
+- **Dépendances** : T-10, T-11
+- **Description** : sur des branches locales jetables, lancer `scripts/ci.sh` (0 à 6) ou `juge.py` (7 à 13) après chaque modification ci-dessous, puis copier la sortie dans le rapport d'implémentation.
   0. un test `assert!(false)` dans le cœur (US-6, cas 2) ;
   1. `rusqlite` ajouté au cœur ;
   2. `chrono` avec `clock` ajouté au cœur ;
@@ -493,11 +541,15 @@ Convention C-TDD pour les tâches Core / Full : le Skeleton pose d'abord les typ
   6. un test de `hlc.rs` supprimé, qui fait passer le score sous 85 % ;
   7. **juge** : seuil modifié dans `mutation.py` ⇒ `rouge` qui nomme le fichier ;
   8. **juge** : `merge.rs` passé de `Full` à `Std` dans `ST-01/zones.toml` ⇒ `rouge` ;
-  9. **juge** : 7 avec `CI_LABELS=ci-change` ⇒ `05` vert. Puis 7, plus une ligne modifiée dans `crates/`, avec le label ⇒ `rouge`.
+  9. **juge** : nouveau `.ctdd/stories/ST-05/zones.toml` avec `Std = ["crates/core/src/**"]` ⇒ `rouge`, qui nomme `crates/core/src/lib.rs` (D-2) ;
+  10. **juge** : `continue-on-error: true` ajouté à l'étape `scripts/ci.sh` de `ci.yml` ⇒ `rouge`, qui nomme `ci.yml` (D-1, contre-exemple 2) ;
+  11. **juge** : `scripts/ci.sh` qui se termine par `exit 0` ⇒ `rouge`, qui nomme `ci.sh` (D-1, contre-exemple 2) ;
+  12. **juge** : nouveau `scripts/ci.d/45-st05-prep.sh` ⇒ `rouge`, qui nomme l'ajout (D-1, contre-exemple 3) ;
+  13. **juge** : 7 avec `CI_LABELS=ci-change` ⇒ vert, avec la liste affichée. Puis 7, plus une ligne modifiée dans `crates/`, avec le label ⇒ `rouge`.
 
-  Pour 7 à 9, la base est un commit local qui contient déjà les fichiers de ST-01 (`CI_BASE=<ce commit>`).
+  Pour 7 à 13, la base est un commit local qui contient déjà les fichiers de ST-01 : `juge.py <ce commit> HEAD`. Le contre-exemple 1 (`juge.py` neutralisé par la PR) ne se démontre que sur GitHub : T-14.
 - **Livrable** : section « Démonstrations » du rapport de la phase 7. Aucun fichier dans le dépôt.
-- **Critère de complétion** : les démonstrations 0 à 8 et le second cas de 9 sont rouges, et le premier cas de 9 est vert. Chaque message nomme ce que la spec exige (composants, chaîne, commit, fichier/score/seuil, fichiers protégés). Les branches sont supprimées.
+- **Critère de complétion** : les démonstrations 0 à 12 et le second cas de 13 sont rouges, et le premier cas de 13 est vert. Chaque message nomme ce que la spec exige (composants, chaîne, commit, fichier/score/seuil, fichiers protégés, fichier dont la zone baisse). Les branches sont supprimées.
 - **Effort estimé** : agent 15 min · arbitrage 0
 
 ### T-13 : Passe de simplification (arbitrage de l'archi)
@@ -519,15 +571,28 @@ Convention C-TDD pour les tâches Core / Full : le Skeleton pose d'abord les typ
   - Rebaser sur `main`, envoyer la branche et ouvrir la PR. Relever la durée de la mutation (R-2).
   - Pour chaque mutant survivant de `hlc.rs`, `write.rs` ou `merge.rs` : écrire le test qui le tue ou, s'il est équivalent, une entrée justifiée dans `.ctdd/stories/ST-01/mutants_equivalents.toml`.
   - **Comparaison local / CI** (US-6, cas 12) : `scripts/ci.sh` en local sur la même tête, avec `CI_BASE` = la base de la PR. On compare le verdict de chaque contrôle et `target/ci/mutation.md` à l'artefact de la CI, à l'octet près.
-  - Une fois le check `ci` rapporté sur la PR, et sur le go de Quentin : `gh api -X PATCH …/branches/main/protection/required_status_checks -f strict=true -f 'contexts[]=ci'`.
-- **Livrable** : PR verte ; `mutants_equivalents.toml` si besoin ; check `ci` requis sur `main`.
+  - **Fusion**, sur le go de Quentin : `juge` n'est pas rapporté sur cette PR (A-8, limite).
+  - **Checks requis**, après la fusion et sur le go de Quentin. Le `PUT` complet crée le sous-objet absent depuis T-0, et `-F` envoie booléens, entiers et `null` typés (D-5) :
+    ```
+    gh api -X PUT repos/quentinhaenn/openarbitre/branches/main/protection \
+      -F 'required_status_checks[strict]=true' \
+      -f 'required_status_checks[contexts][]=ci' -f 'required_status_checks[contexts][]=juge' \
+      -F enforce_admins=true \
+      -F 'required_pull_request_reviews[required_approving_review_count]=0' \
+      -F restrictions=null -F allow_force_pushes=false -F allow_deletions=false
+    ```
+  - **Démonstration sur GitHub** (D-1, contre-exemple 1), sur le go de Quentin : une PR jetable remplace le corps de `juger` par `return (False, [])` et ajoute `continue-on-error: true` à `ci.yml`. Le résultat attendu : `juge` est `rouge`, puisque c'est le `juge.py` de `main` qui s'exécute, et la fusion est bloquée. Puis on ferme la PR et on supprime la branche.
+  - **Premier passage vert** : la PR du rapport de la phase 7 (`.ctdd/` seulement) a `ci` et `juge` verts.
+- **Livrable** : PR de ST-01 fusionnée ; `mutants_equivalents.toml` si besoin ; checks `ci` et `juge` requis sur `main`.
 - **Critère de complétion** :
   - CI verte sur la PR (US-6, cas 1) ;
   - `mutation.md` ≥ 85 % pour `hlc.rs`, `write.rs` et `merge.rs`, et ≥ 70 % pour `clock.rs` (K-7.5) ;
   - chaque équivalent relu par Quentin ;
   - verdicts et `mutation.md` identiques entre local et CI. Un écart dû à un délai d'attente relève de R-10 et va à Quentin ;
-  - la protection liste `ci` en check requis, avec `strict: true`.
-- **Effort estimé** : agent 30 min (mutation comprise) · arbitrage 20 min (équivalents, durée de CI, go protection)
+  - `gh api …/branches/main/protection` rend `required_status_checks.strict = true` et `contexts = ["ci", "juge"]` ;
+  - sur la PR de démonstration, `juge` est `rouge` et nomme `ci.yml` et `scripts/lib/juge.py` ; la PR est fermée sans fusion ;
+  - la PR du rapport est verte sur les deux checks.
+- **Effort estimé** : agent 35 min (mutation comprise) · arbitrage 25 min (équivalents, durée de CI, go de fusion, de protection et de démonstration)
 
 ## Ordre d'exécution
 
@@ -536,8 +601,7 @@ T-0 ─────────────────────────�
 T-1 ─┬─► T-2 ─────────────────────────────────────────────────┤
      ├─► T-3 ─► T-4 ─► T-5 ─► T-6 ─► T-7 ─────────────────────┤
      ├─► T-8 ──────────┐                                      ├─► T-13 ─► T-14
-     └── (T-0) ─► T-9 ─┴─► T-10 ─┬─► T-11 ────────────────────┤
-                                 └─► T-12 ────────────────────┘
+     └── (T-0) ─► T-9 ─┴─► T-10 ─► T-11 ─► T-12 ───────────────┘
 ```
 
 - **Deux voies après T-1** : le moteur (T-3 à T-7) et l'outillage (T-8 à T-12). Elles ne partagent aucun fichier. T-8 et T-9 sont parallélisables entre elles.
@@ -550,12 +614,12 @@ T-1 ─┬─► T-2 ───────────────────�
 |---|---|---|---|
 | Préalable | T-0, T-1, T-2 | 25 | 25 |
 | Moteur | T-3 → T-7 | 105 | 5 |
-| Outillage | T-8 ∥ T-9 → T-10 → T-11, T-12 | 80 (≈ 65 en durée) | 0 |
-| Clôture | T-13, T-14 | 40 | 25 |
-| **Total** | | **250 cumulés, ≈ 180 en durée** (le moteur est le chemin critique) | **≈ 55** |
+| Outillage | T-8 ∥ T-9 → T-10 → T-11 → T-12 | 90 (≈ 75 en durée) | 0 |
+| Clôture | T-13, T-14 | 45 | 30 |
+| **Total** | | **265 cumulés, ≈ 185 en durée** (le moteur est le chemin critique) | **≈ 60** |
 
 - Périmètre : phases 6 à 8. Les itérations DA ne sont pas comptées.
-- Par rapport à la v1 : +35 min d'agent, pour l'oracle, le juge, la passe de simplification et la vérification des dépendances.
+- Par rapport à la v1 : +35 min d'agent, pour l'oracle, le juge, la passe de simplification et la vérification des dépendances. Par rapport à la v2 : +15 min d'agent et +5 min d'arbitrage, pour `juge.yml` et la démonstration sur GitHub.
 - Écart au cadre : M (100 min machine) + forte (60 min d'arbitrage). La durée machine dépasse M d'environ 80 %. L'arbitrage tient dans « forte ». On relève ces données dans `state.json`, sans les corriger.
 
 ## Invariants C-TDD à vérifier post-implémentation
@@ -572,14 +636,14 @@ T-1 ─┬─► T-2 ───────────────────�
 | INV-ST01-4, 5, 6 (ordre, émission, réception) | T-3 | Propriétés sur des suites d'heures quelconques ; bornes `L_MAX` |
 | INV-ST01-7 (lot invalide refusé en entier) | T-4, T-5 | Journal et horloge inchangés |
 | INV-ST01-8 (avances) | T-3 | Seuil exact non signalé |
-| INV-ST01-9 (cœur sans stockage ni heure) | T-1, T-8, T-12 | `cargo tree` ; A-6 ; démonstrations 1 et 2 |
+| INV-ST01-9 (cœur sans stockage ni heure) | T-1, T-8, T-12 | `cargo tree` ; `#![no_std]` (A-6) ; démonstrations 1 et 2 |
 | INV-ST01-10 (dépendances communes) | T-1, T-8 | Règle (e) ; vérification ponctuelle (A-5) |
 | INV-ST01-11 (verdict unique) | T-10, T-14 | Matrice US-6, cas 9, 10, 11 et 12 (comparaison local / CI) |
 | INV-ST01-12 (liste navigateur) | T-10 | Matrice US-6, cas 4 |
 | INV-ST01-13 (arêtes interdites) | T-8, T-12 | Table A-9 ; démonstration 3 |
 | INV-ST01-14 (secrets par commit) | T-10, T-12 | Démonstration 5 |
-| INV-ST01-15 (zone la plus exigeante) | T-9, T-10 | Matrice US-7, cas 3, 4, 10 ; zones abaissées (A-8) |
-| INV-ST01-16 (seuil bloquant, équivalents justifiés) | T-9, T-12, T-14 | Matrice US-7 ; démonstrations 6 à 8 ; PR de ST-01 |
+| INV-ST01-15 (zone la plus exigeante) | T-9, T-10, T-11 | Matrice US-7, cas 3, 4, 10 ; zone effective qui ne baisse pas (A-8), démonstrations 8 et 9 |
+| INV-ST01-16 (seuil bloquant, équivalents justifiés) | T-9, T-11, T-12, T-14 | Matrice US-7 ; démonstrations 6, 7 et 10 à 12 ; démonstration GitHub de T-14 ; PR de ST-01 |
 | PROP-ST01-1 (horloge simulée) | T-3 | Matrice US-4, cas 1 à 4 |
 | PROP-ST01-2 (N appareils) | T-7 | Scénarios générés, 3 à 5 appareils, oracle causal |
 | K-7.5 (≥ 85 % sur moteur et horloge) | T-14 | `mutation.md` de la PR |
@@ -614,3 +678,19 @@ Chaque recommandation est retenue par défaut si Quentin ne dit rien.
 
 - **DA v2 F-1 → juge séparé, exécuté depuis `main`.** Workflow `juge.yml` sur `pull_request_target` (types incluant `labeled`/`unlabeled`) : workflow et scripts pris sur la base, **aucun code de la PR exécuté** ; il lit la liste des fichiers modifiés et les `zones.toml` de la tête comme données. Protège tout `.github/` et tout `scripts/`, ajouts compris, et la zone effective de chaque fichier existant (rouge si elle baisse entre base et tête, ce qui ferme aussi DA v2 F-2). Toute modification protégée exige le label `ci-change`, posé par Quentin seul. `juge` est un check requis à côté de `ci`. Remplace `05-st01-juge.sh` d'A-8. Écart accepté à AC-6.6 : ajouter une vérification dans `ci.d/` passe par le label.
 - **Suite** : plan v3 léger (DA v2 F-1 à F-3 et mineurs F-4 à F-10, sans toucher au moteur), puis Skeleton sans itération DA 3, conformément à la recommandation du DA v2.
+
+## Reste à arbitrer sur le plan v3 (Quentin)
+
+Chaque recommandation est retenue par défaut si Quentin ne dit rien. Aucune ne touche le moteur.
+
+| # | Question | Recommandation |
+|---|---|---|
+| Q-11 | **D-7** : passer `arbitre-core` en `#![no_std]` (plus `alloc`), au lieu de la recherche textuelle d'A-6 v2. Le compilateur ferme l'heure, `env`, `fs`, `net`, `process` et `thread`, sans faux positif. Le risque est R-12 : `jiff` dans le cœur en ST-04. | **Oui.** Le seul coût est d'écrire `alloc::` au lieu de `std::` dans les imports. Si ST-04 bute, on revient à la règle textuelle par une PR `ci-change`. |
+| Q-12 | **D-8** : sorties incrémentales quadratiques sur un flux d'écritures isolées. Accepter pour ST-01, avec un `ponytail:` qui renvoie à ST-19 ? | **Accepter.** ST-01 n'a aucune synchronisation au fil de l'eau, et ST-19 mesurera sur son propre cas. |
+| Q-13 | **D-9** : une même écriture réémise avec un `vu` différent devient une anomalie. Accepter, et poser comme contrat de ST-02 l'aller-retour exact d'une `Ecriture` ? | **Accepter.** La copie est réellement corrompue, et le signal est donc juste. Canonicaliser `vu` ne couvrirait de toute façon pas une entrée retirée. |
+
+## Arbitrages de Quentin sur le plan v3 (2026-11-03)
+
+- **Q-11 → oui** : `arbitre-core` en `#![no_std]` + `alloc`, à la place de la recherche textuelle d'A-6. Sortie si `jiff` bute en ST-04 : règle textuelle par PR `ci-change`, ou `fuseau()` hors du cœur.
+- **Q-12, Q-13 → acceptés** selon les recommandations.
+- Pas d'itération DA 3 (réserves du DA v2 hors moteur) : passage au Skeleton.
