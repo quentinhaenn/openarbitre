@@ -3,6 +3,9 @@
 //! `no_std` + `alloc` : le compilateur interdit l'heure système et les E/S (A-6).
 
 #![no_std]
+// `vec!` pour les mutants « fonction vide » de cargo-mutants (07_review R-1).
+#[allow(unused_imports)]
+#[macro_use]
 extern crate alloc;
 
 mod clock;

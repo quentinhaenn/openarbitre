@@ -111,6 +111,7 @@ fn us1_cas10_collision_d_identite() {
     let w1 = ecriture(donnee("d"), champ("f", "v1"), marque(10, 0, A));
     let w2 = ecriture(donnee("d"), champ("f", "v2"), marque(10, 0, A));
     let mut x = recu(std::slice::from_ref(&w1));
+    assert!(x.anomalies().is_empty());
     let rapport = x.fusionner(std::slice::from_ref(&w2)).unwrap();
     assert_eq!(x.ecritures(), vec![w1.clone(), w2.clone()]);
     assert_eq!(valeur_de(&x, "d", "f"), champ("f", "v2"));
@@ -336,6 +337,7 @@ fn us2_cas1_meme_champ_hors_ligne_des_deux_cotes() {
     let rapport = x.fusionner(&[wa.clone(), wb.clone()]).unwrap();
     assert_eq!(x.conflits(), vec![conflit(&wb, &wa, "f")]);
     assert_eq!(rapport.nouveaux_conflits, x.conflits());
+    assert!(rapport.nouvelles_anomalies.is_empty());
     assert_eq!(rapport.nouvelles_ecartees, vec![wa]);
 }
 

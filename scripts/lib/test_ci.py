@@ -283,7 +283,7 @@ class TestJuge(unittest.TestCase):
         return juge.juger(changes, ZONES_BASE, ZONES_BASE if zones_tete is None else zones_tete, RS_BASE, set(labels))
 
     def test_chemins_proteges_rouges(self):
-        for chemin in ("scripts/lib/mutation.py", "scripts/ci.d/45-st05-prep.sh", ".github/workflows/ci.yml"):
+        for chemin in ("scripts/lib/mutation.py", "scripts/ci.d/45-st05-prep.sh", ".github/workflows/ci.yml", ".gitleaksignore", ".cargo/config.toml"):
             rouge, lignes = self.juger([chemin])
             self.assertTrue(rouge, chemin)
             self.assertTrue(any(chemin in l for l in lignes))

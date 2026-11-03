@@ -356,10 +356,10 @@ impl Journal {
     }
 
     fn conflits_de(&self, d: &IdDonnee) -> Vec<Conflit> {
-        let mut visees_champ: Vec<Cible> = Vec::new();
+        let mut visees_champ: BTreeSet<Cible> = BTreeSet::new();
         for ((c, _), _) in self.de(d) {
-            if matches!(c.visee, Visee::Champ(_)) && visees_champ.last() != Some(c) {
-                visees_champ.push(c.clone());
+            if matches!(c.visee, Visee::Champ(_)) {
+                visees_champ.insert(c.clone());
             }
         }
         let suppression = Cible {
@@ -371,11 +371,11 @@ impl Journal {
             for kw in contenus {
                 let w = en_ecriture(cw, mw, kw);
                 let propres;
-                let cibles: &[Cible] = match cw.visee {
-                    Visee::Suppression => &visees_champ,
+                let cibles: &mut dyn Iterator<Item = &Cible> = match cw.visee {
+                    Visee::Suppression => &mut visees_champ.iter(),
                     Visee::Champ(_) => {
                         propres = [cw.clone(), suppression.clone()];
-                        &propres
+                        &mut propres.iter()
                     }
                 };
                 for c in cibles {

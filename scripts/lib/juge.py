@@ -9,7 +9,7 @@ import sys
 
 from mutation import ZONES, Rouge, lire_zones, zone_de
 
-PROTEGES = (".github/", "scripts/")
+PROTEGES = (".github/", "scripts/", ".cargo/", ".gitleaksignore")
 LABEL = "ci-change"
 
 

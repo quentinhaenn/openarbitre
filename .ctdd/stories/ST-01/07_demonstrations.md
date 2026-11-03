@@ -43,3 +43,17 @@ et, sur un `outcomes.json` réel dont la base est rouge, `mutation : rouge : tes
 ## Constat hors démonstration
 
 Un cache `.pyc` périmé (modification de même taille dans la même seconde) a masqué un instant un changement de `mutation.py` ; `ci.sh` exporte maintenant `PYTHONDONTWRITEBYTECODE=1`.
+
+## Reprises de la review (R-3, 2026-11-03)
+
+Moteur fini. Régressions volontaires appliquées au working tree, puis restaurées (`cmp` identique) ; démonstration 6 sur branche jetable supprimée.
+
+| Vérification | Modification | Résultat |
+|---|---|---|
+| T-7 (i) : `vu` scalaire | `merge.rs`, `conflits_de` : `kw.vu.get(&c.visee)` et `w.vu.get(&x.cible().visee)` remplacés par `…vu.values().max()` (règle de la v1) | rouge : `convergence` : `concurrentes_ssi_conflit` FAILED (l'oracle causal) ; `merge` : `contre_exemple_f1` FAILED. `cargo test -p arbitre-core --features sim --no-fail-fast` |
+| T-7 (ii) : départage inversé | non refaite (hors arbitrage) ; couvert par les mutants `Ord`/`>` de `merge.rs` | |
+| T-8 : pureté | `fn _x() { let _ = std::fs::read("x"); }` ajouté à `merge.rs` | `cargo check -p arbitre-core` : `error[E0433]: cannot find module or crate std in this scope` |
+| 6 : `hlc.rs` sous le seuil | branche jetable : fonction `demo_non_testee` (11 mutants, aucun test) ajoutée à `hlc.rs`, `50-st01-mutation.sh` avec `CI_BASE` = commit précédent | rouge : `11 mutants tested in 3m: 11 missed`, `mutation : rouge : crates/core/src/hlc.rs sous le seuil`, `hlc.rs | Full | 0.0 % (0/11) | 85 % | rouge` |
+| T-13 | revue des propositions de simplification | aucune proposition écartée : toutes retenues (`04b0c8a`) |
+
+Le substitut de la démonstration 6 (crate jetable) est remplacé par cette démonstration réelle.
