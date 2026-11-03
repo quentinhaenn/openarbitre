@@ -1,5 +1,152 @@
-🔍 1 in 1F:
+ci : 10-st01-tests
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running unittests src/main.rs (target/debug/deps/arbitre-cbec092c6a1cd408)
 
-📄 /private/tmp/claude-502/ci1.log (1):
-   154: FIN 0
+running 0 tests
 
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/arbitre_core-d364e5816ef9b080)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/convergence.rs (target/debug/deps/convergence-a21842018129e9c2)
+
+running 5 tests
+test couverture_des_familles ... ok
+test determinisme_permutation ... ok
+test convergence ... ok
+test concurrentes_ssi_conflit ... ok
+test inv_5_algebre ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.14s
+
+     Running tests/hlc.rs (target/debug/deps/hlc-65177405b9599c3b)
+
+running 20 tests
+test horloge_simulee_figer ... ok
+test horloge_simulee_fixer_avancer_reculer ... ok
+test id_appareil_conserve_l_ordre_des_entiers ... ok
+test us4_cas1_correction_sur_appareil_en_retard ... ok
+test borne_l_max_atteinte ... ok
+test borne_compteur_sature_et_heure_figee ... ok
+test us4_cas2_deux_emissions_meme_instant ... ok
+test borne_l_max_moins_un_emet ... ok
+test avances_maximum_par_appareil_tri_par_appareil ... ok
+test us4_cas10_ecriture_en_retard_rien_a_signaler ... ok
+test us4_cas4_heure_qui_recule ... ok
+test us4_cas5_heure_qui_avance_apres_gel ... ok
+test us4_cas7_avance_de_trois_heures_signalee_et_adoptee ... ok
+test us4_cas8_avance_egale_au_seuil_non_signalee ... ok
+test us4_cas9_seuil_regle_a_dix_minutes ... ok
+test us4_cas3_cent_mille_emissions_meme_instant ... ok
+test inv_st01_4_ordre_total ... ok
+test inv_st01_8_avances ... ok
+test inv_st01_5_emissions_croissantes ... ok
+test inv_st01_6_reception ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/merge.rs (target/debug/deps/merge-df6dc2e2a2c736b4)
+
+running 44 tests
+test ecrire_identifiant_vide_ne_consomme_pas_de_marque ... ok
+test fusionner_lot_invalide_journal_et_horloge_inchanges ... ok
+test ecrire_ignore_les_autres_donnees ... ok
+test ecrire_horloge_epuisee ... ok
+test ecrire_calcule_vu_par_visee ... ok
+test fusionner_lot_valide_l_horloge_adopte_le_maximum ... ok
+test collision_de_valeurs_differentes_est_un_conflit ... ok
+test contre_exemple_f1 ... ok
+test cas_f12_meme_marque_suppression_et_champ ... ok
+test us1_cas11_lot_mal_forme_refuse_en_entier ... ok
+test us1_cas2_meme_champ_marques_differentes ... ok
+test us1_cas1_champs_differents_deux_appareils ... ok
+test us1_cas7_lot_vide ... ok
+test us1_cas3_meme_l_c_departage_par_appareil ... ok
+test us2_cas1_meme_champ_hors_ligne_des_deux_cotes ... ok
+test seconde_reception_trois_listes_vides ... ok
+test us2_cas2_ecrasement_sequentiel ... ok
+test us2_cas10_ecriture_sequentielle_apres_conflit ... ok
+test us1_cas10_collision_d_identite ... ok
+test us2_cas3_ecrasement_sequentiel_recepteur_en_retard ... ok
+test us2_cas7_pair_jamais_synchronise ... ok
+test us2_cas4_concurrentes_de_meme_valeur ... ok
+test us2_cas9_ecartee_complete ... ok
+test us2_cas6_trois_concurrentes_un_conflit_par_paire ... ok
+test us3_cas1_conflit_retenue_champ ... ok
+test us3_cas2_conflit_retenue_suppression ... ok
+test us3_cas1_suppression_puis_modification_concurrente ... ok
+test us3_cas2_modification_puis_suppression_concurrente ... ok
+test us3_cas4_resurrection_sequentielle ... ok
+test us3_cas3_suppression_sequentielle ... ok
+test us3_cas3_et_4_sequentiels_sans_conflit ... ok
+test us2_cas8_rejeu_memes_listes_meme_ordre ... ok
+test us3_cas5_meme_l_c_suppression_contre_champ ... ok
+test us3_cas5_meme_l_c_suppression_contre_champ_en_conflit ... ok
+test us3_cas6_double_suppression_sans_conflit ... ok
+test us3_cas9_suppression_seule ... ok
+test us3_cas6_double_suppression_concurrente ... ok
+test us3_cas7_resurrection_tous_champs ... ok
+test inv_st01_7_lot_invalide ... ok
+test inv_7_partition ... ok
+test inv_7_monotonie ... ok
+test inv_st01_3_tris ... ok
+test us1_cas8_dix_mille_ecritures_en_un_lot_recu ... ok
+test us1_cas8_dix_mille_ecritures_sequentielles ... ok
+
+test result: ok. 44 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.82s
+
+     Running tests/write.rs (target/debug/deps/write-f20e48f4fd53793e)
+
+running 12 tests
+test lot_vide_valide ... ok
+test marque_l_max_moins_un_acceptee ... ok
+test marque_l_max_refusee ... ok
+test seule_la_deuxieme_entree_de_vu_fautive ... ok
+test vu_egal_a_la_marque_refuse ... ok
+test cible_et_appareil ... ok
+test index_de_la_premiere_fautive ... ok
+test identifiants_vides_refuses ... ok
+test valeur_vide_acceptee ... ok
+test vu_en_trop_sur_un_autre_champ_accepte ... ok
+test us4_cas11_ecriture_complete_de_chaque_auteur ... ok
+test vu_superieur_a_la_marque_refuse ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests arbitre_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+..................................................
+----------------------------------------------------------------------
+Ran 50 tests in 0.006s
+
+OK
+ci : 20-st01-navigateur
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.01s
+ci : 30-st01-graphe
+ci : 40-st01-secrets
+10:21PM INF 19 commits scanned.
+10:21PM INF scanned ~576410 bytes (576.41 KB) in 81.6ms
+10:21PM INF no leaks found
+ci : 50-st01-mutation
+Found 105 mutants to test
+ok       Unmutated baseline in 3s build + 12s test
+ INFO Auto-set test timeout to 62s
+MISSED   crates/cli/src/main.rs:10:5: replace main with () in 0s build + 0s test
+MISSED   crates/core/src/merge.rs:405:66: replace > with >= in Journal::conflits_de in 0s build + 12s test
+105 mutants tested in 8m: 2 missed, 70 caught, 33 unviable
+| fichier | zone | score | seuil | verdict |
+|---|---|---|---|---|
+| crates/cli/src/main.rs | Gen | 0.0 % (0/1) | — | info |
+| crates/core/src/clock.rs | Std | 100.0 % (9/9) | 70 % | vert |
+| crates/core/src/hlc.rs | Full | 100.0 % (7/7) | 85 % | vert |
+| crates/core/src/merge.rs | Full | 100.0 % (41/41) | 85 % | vert |
+| crates/core/src/write.rs | Full | 100.0 % (13/13) | 85 % | vert |
+ci : vert
