@@ -1,5 +1,5 @@
 # Vérification de chaque PR : un job, qui appelle scripts/ci.sh (archi ST-01 § CI, T-11).
-# Actions épinglées par SHA de commit (dépôt public) : SHA à poser en T-11.
+# Actions épinglées par SHA de commit (dépôt public) ; tag d'origine en commentaire.
 name: ci
 on:
   pull_request:
@@ -9,16 +9,37 @@ jobs:
   ci:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@SHA_A_EPINGLER_T11
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      # T-11 : toolchain de rust-toolchain.toml, setup-python 3.13, cargo-mutants et gitleaks
-      # précompilés aux versions de scripts/outils.env, cache Cargo.
+      # Toolchain, composants et cible de rust-toolchain.toml.
+      - name: toolchain
+        run: rustup toolchain install
+      # full_match exige Python >= 3.13 (Q-2).
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - name: versions des outils
+        id: outils
+        run: |
+          . scripts/outils.env
+          echo "tool=cargo-mutants@${CARGO_MUTANTS_VERSION},gitleaks@${GITLEAKS_VERSION}" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
+        with:
+          tool: ${{ steps.outils.outputs.tool }}
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: cargo-${{ runner.os }}-
       - name: scripts/ci.sh
         run: scripts/ci.sh
         env:
           CI_BASE: ${{ github.event.pull_request.base.sha }}
-      - uses: actions/upload-artifact@SHA_A_EPINGLER_T11
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: ci
