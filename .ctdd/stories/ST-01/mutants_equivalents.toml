@@ -1,3 +1,3 @@
 [[equivalent]]
-mutant = "crates/core/src/merge.rs:405:66: replace > with >= in Journal::conflits_de"
-justification = "Les deux versions ne diffèrent que si rang(w) == rang(x). rang = (marque, cible, valeur, vu, auteur) détermine l'Ecriture en entier (donnee est dans cible ; quoi se déduit de visee et de valeur, comme en_ecriture) : rangs égaux ⇒ x == w. Ce cas sort à `x == w` (continue) avant la comparaison : branche inatteignable. Preuve : 07_review.md, tableau des survivants."
+mutant = "crates/core/src/merge.rs:404:69: replace > with >= in Log::conflicts_of"
+justification = "The two versions differ only when rank(w) == rank(x). rank = (stamp, target, value, seen, author) determines the whole Write (record is in target; change is deduced from kind and value, as in to_write): equal ranks ⇒ x == w. That case exits at `x == w` (continue) before the comparison: unreachable branch. Proof: 07_review.md, survivors table."

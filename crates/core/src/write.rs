@@ -1,135 +1,138 @@
-//! Écritures et validation de lot (archi ST-01 § Modèle de données, A-1, A-11 ; T-4).
+//! Writes and batch validation (ST-01 design, data model, A-1, A-11; T-4).
 //!
-//! Auteur hors liste et appareil ≠ `marque.a` ne sont pas représentables (écart E-1 de l'archi).
+//! Authors outside the closed list and device ≠ `stamp.a` are not representable (deviation E-1 of the design).
 
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::hlc::{IdAppareil, L_MAX, Marque};
+use crate::hlc::{DeviceId, L_MAX, Stamp};
 
-/// Identifiant d'une donnée. Ordre contractuel `(module, genre, id)`, octets UTF-8 (A-4).
+/// Record identifier. Contractual order `(module, category, id)`, UTF-8 bytes (A-4).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct IdDonnee {
+pub struct RecordId {
     pub module: String,
-    pub genre: String,
+    pub category: String,
     pub id: String,
 }
 
-/// Nom d'un champ.
+/// Field name.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Champ(pub String);
+pub struct Field(pub String);
 
-/// Valeur sérialisée par le module ; le cœur n'en compare que les octets.
+/// Value serialized by the module; the core only compares its bytes.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Valeur(pub Vec<u8>);
+pub struct Value(pub Vec<u8>);
 
-/// Liste fermée des auteurs (RG-ST01-4.5).
+/// Closed list of authors (RG-ST01-4.5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Auteur {
-    UtilisateurCli,
-    UtilisateurInterface,
+pub enum Author {
+    CliUser,
+    UiUser,
     Assistant,
-    Systeme,
+    System,
 }
 
-/// Ce que fait une écriture : affecter un champ ou supprimer la donnée.
+/// What a write does: set a field or delete the record.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Quoi {
-    Champ { nom: Champ, valeur: Valeur },
-    Suppression,
+pub enum Change {
+    Field { name: Field, value: Value },
+    Delete,
 }
 
-/// Visée d'une écriture dans sa donnée. Ordre contractuel : la suppression avant les champs (A-1, D-4).
+/// Which part of its record a write targets. Contractual order: delete before fields (A-1, D-4).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Visee {
-    Suppression,
-    Champ(Champ),
+pub enum TargetKind {
+    Delete,
+    Field(Field),
 }
 
-/// Cible `(donnee, visee)`. Ordre contractuel (A-4).
+/// Target `(record, kind)`. Contractual order (A-4).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Cible {
-    pub donnee: IdDonnee,
-    pub visee: Visee,
+pub struct Target {
+    pub record: RecordId,
+    pub kind: TargetKind,
 }
 
-/// Plus grande marque connue de l'auteur, par visée de la même donnée (A-1). Entrée absente = `⊥`.
-pub type Vu = BTreeMap<Visee, Marque>;
+/// Largest stamp known to the author, per target kind of the same record (A-1). Missing entry = `⊥`.
+pub type Seen = BTreeMap<TargetKind, Stamp>;
 
-/// Écriture `(donnee, quoi, marque, vu, auteur)`. Son `Ord` dérivé n'est pas contractuel (A-4).
+/// Write `(record, change, stamp, seen, author)`. Its derived `Ord` is not contractual (A-4).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Ecriture {
-    pub donnee: IdDonnee,
-    pub quoi: Quoi,
-    pub marque: Marque,
-    pub vu: Vu,
-    pub auteur: Auteur,
+pub struct Write {
+    pub record: RecordId,
+    pub change: Change,
+    pub stamp: Stamp,
+    pub seen: Seen,
+    pub author: Author,
 }
 
-impl Ecriture {
-    /// `(donnee, Champ(nom))` ou `(donnee, Suppression)`.
-    pub fn cible(&self) -> Cible {
-        let visee = match &self.quoi {
-            Quoi::Champ { nom, .. } => Visee::Champ(nom.clone()),
-            Quoi::Suppression => Visee::Suppression,
+impl Write {
+    /// `(record, Field(name))` or `(record, Delete)`.
+    pub fn target(&self) -> Target {
+        let kind = match &self.change {
+            Change::Field { name, .. } => TargetKind::Field(name.clone()),
+            Change::Delete => TargetKind::Delete,
         };
-        Cible {
-            donnee: self.donnee.clone(),
-            visee,
+        Target {
+            record: self.record.clone(),
+            kind,
         }
     }
 
-    /// Appareil auteur, `= marque.a` par construction (RG-ST01-4.5).
-    pub fn appareil(&self) -> IdAppareil {
-        self.marque.a
+    /// Authoring device, `= stamp.a` by construction (RG-ST01-4.5).
+    pub fn device(&self) -> DeviceId {
+        self.stamp.a
     }
 }
 
-/// Motif de refus d'une écriture.
+/// Why a write is rejected.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Raison {
-    /// Une entrée de `vu` n'est pas `< marque` (E-2, A-1).
-    VuNonAnterieur,
-    /// Module, genre, id ou nom de champ vide.
-    IdentifiantVide,
-    /// `marque.l ≥ L_MAX` (A-11).
-    MarqueHorsBornes,
+pub enum Reason {
+    /// A `seen` entry is not `< stamp` (E-2, A-1).
+    SeenNotBefore,
+    /// Empty module, category, id or field name.
+    EmptyIdentifier,
+    /// `stamp.l ≥ L_MAX` (A-11).
+    StampOutOfBounds,
 }
 
-/// Refus d'un lot : première écriture fautive, dans l'ordre du lot.
+/// Batch rejection: first faulty write, in batch order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ErreurLot {
+pub struct BatchError {
     pub index: usize,
-    pub raison: Raison,
+    pub reason: Reason,
 }
 
-/// Valide un lot en entier (RG-ST01-4.5, INV-ST01-7).
+/// Validates a whole batch (RG-ST01-4.5, INV-ST01-7).
 ///
-/// Post : `Ok` ⇔ chaque écriture a des identifiants non vides, `l < L_MAX`
-/// et chaque entrée de `vu` `< marque`. Sinon la première fautive.
-/// Les entrées de `vu` en trop ne sont pas refusées (A-1).
-pub fn valider(lot: &[Ecriture]) -> Result<(), ErreurLot> {
-    for (index, w) in lot.iter().enumerate() {
-        let raison = if !identifiants_pleins(&w.donnee, &w.quoi) {
-            Raison::IdentifiantVide
-        } else if w.marque.l >= L_MAX {
-            Raison::MarqueHorsBornes
-        } else if w.vu.values().any(|m| *m >= w.marque) {
-            Raison::VuNonAnterieur
+/// Post: `Ok` ⇔ every write has non-empty identifiers, `l < L_MAX`
+/// and every `seen` entry `< stamp`. Otherwise the first faulty write.
+/// Extra `seen` entries are not rejected (A-1).
+pub fn validate(batch: &[Write]) -> Result<(), BatchError> {
+    for (index, w) in batch.iter().enumerate() {
+        let reason = if !identifiers_non_empty(&w.record, &w.change) {
+            Reason::EmptyIdentifier
+        } else if w.stamp.l >= L_MAX {
+            Reason::StampOutOfBounds
+        } else if w.seen.values().any(|m| *m >= w.stamp) {
+            Reason::SeenNotBefore
         } else {
             continue;
         };
-        return Err(ErreurLot { index, raison });
+        return Err(BatchError { index, reason });
     }
     Ok(())
 }
 
-/// Module, genre, id et nom de champ non vides.
-pub(crate) fn identifiants_pleins(donnee: &IdDonnee, quoi: &Quoi) -> bool {
-    let nom_plein = match quoi {
-        Quoi::Champ { nom, .. } => !nom.0.is_empty(),
-        Quoi::Suppression => true,
+/// Non-empty module, category, id and field name.
+pub(crate) fn identifiers_non_empty(record: &RecordId, change: &Change) -> bool {
+    let name_non_empty = match change {
+        Change::Field { name, .. } => !name.0.is_empty(),
+        Change::Delete => true,
     };
-    nom_plein && !donnee.module.is_empty() && !donnee.genre.is_empty() && !donnee.id.is_empty()
+    name_non_empty
+        && !record.module.is_empty()
+        && !record.category.is_empty()
+        && !record.id.is_empty()
 }

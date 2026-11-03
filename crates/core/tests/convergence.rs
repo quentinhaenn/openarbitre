@@ -1,5 +1,5 @@
-//! Appareils simulés, oracle causal, convergence (T-7). PROP-ST01-2, INV-5, INV-ST01-1, INV-ST01-2.
-//! Matrices US-1 cas 4, 5, 6, 9 ; US-2 cas 5 ; US-3 cas 8 (scénarios générés avec suppressions).
+//! Simulated devices, causal oracle, convergence (T-7). PROP-ST01-2, INV-5, INV-ST01-1, INV-ST01-2.
+//! Matrices US-1 cases 4, 5, 6, 9; US-2 case 5; US-3 case 8 (generated scenarios with deletions).
 
 mod support;
 
@@ -11,27 +11,27 @@ use proptest::prelude::*;
 use proptest::test_runner::TestRunner;
 use support::*;
 
-fn r_de(x: &Journal) -> (Projection, Vec<Ecriture>, Vec<Conflit>) {
-    (x.projection(), x.ecartees(), x.conflits())
+fn outputs_of(x: &Log) -> (Projection, Vec<Write>, Vec<Conflict>) {
+    (x.projection(), x.discarded(), x.conflicts())
 }
 
-fn recu(lots: &[&[Ecriture]]) -> Journal {
-    let mut x = Journal::nouveau(app(100));
-    for lot in lots {
-        x.fusionner(lot).unwrap();
+fn received(batches: &[&[Write]]) -> Log {
+    let mut x = Log::new(dev(100));
+    for batch in batches {
+        x.merge(batch).unwrap();
     }
     x
 }
 
-/// Toutes les écritures d'un scénario livré en entier, et un masque pour les répartir en lots.
-fn s_et_masque() -> impl Strategy<Value = (Vec<Ecriture>, Vec<bool>, Vec<bool>)> {
-    scenario().prop_flat_map(|sc| {
-        let mut sim = Simulation::nouvelle(&sc);
-        for action in &sc.actions {
-            sim.appliquer(action);
+/// All writes of a fully delivered scenario, and masks to split them into batches.
+fn s_and_masks() -> impl Strategy<Value = (Vec<Write>, Vec<bool>, Vec<bool>)> {
+    scenario().prop_flat_map(|scn| {
+        let mut sim = Simulation::new(&scn);
+        for action in &scn.actions {
+            sim.apply(action);
         }
-        sim.tout_livrer();
-        let s = sim.appareils[0].journal.ecritures();
+        sim.deliver_all();
+        let s = sim.devices[0].log.writes();
         let n = s.len();
         (
             Just(s),
@@ -41,8 +41,8 @@ fn s_et_masque() -> impl Strategy<Value = (Vec<Ecriture>, Vec<bool>, Vec<bool>)>
     })
 }
 
-fn partager(s: &[Ecriture], masque: &[bool]) -> (Vec<Ecriture>, Vec<Ecriture>) {
-    let (a, b): (Vec<_>, Vec<_>) = s.iter().cloned().zip(masque).partition(|(_, m)| **m);
+fn split(s: &[Write], mask: &[bool]) -> (Vec<Write>, Vec<Write>) {
+    let (a, b): (Vec<_>, Vec<_>) = s.iter().cloned().zip(mask).partition(|(_, m)| **m);
     (
         a.into_iter().map(|(w, _)| w).collect(),
         b.into_iter().map(|(w, _)| w).collect(),
@@ -52,104 +52,104 @@ fn partager(s: &[Ecriture], masque: &[bool]) -> (Vec<Ecriture>, Vec<Ecriture>) {
 proptest! {
     #![proptest_config(config())]
 
-    /// INV-ST01-2, F-2, D-10 : après chaque action, sur chaque appareil, `conflits()` = oracle ;
-    /// la concaténation des `nouveaux_conflits` est sans doublon et égale `conflits()` en ensemble.
+    /// INV-ST01-2, F-2, D-10: after each action, on each device, `conflicts()` = oracle;
+    /// the concatenation of `new_conflicts` has no duplicates and equals `conflicts()` as a set.
     #[test]
-    fn concurrentes_ssi_conflit(sc in scenario()) {
-        let mut sim = Simulation::nouvelle(&sc);
-        let mut cumul: Vec<Vec<Conflit>> = vec![Vec::new(); sim.appareils.len()];
-        let mut verifier = |sim: &Simulation, rapports: Vec<(usize, Rapport)>| -> Result<(), TestCaseError> {
-            for (i, r) in rapports {
-                cumul[i].extend(r.nouveaux_conflits);
+    fn concurrent_iff_conflict(scn in scenario()) {
+        let mut sim = Simulation::new(&scn);
+        let mut accumulated: Vec<Vec<Conflict>> = vec![Vec::new(); sim.devices.len()];
+        let mut check = |sim: &Simulation, reports: Vec<(usize, Report)>| -> Result<(), TestCaseError> {
+            for (i, r) in reports {
+                accumulated[i].extend(r.new_conflicts);
             }
-            let registre = sim.registre();
-            for (i, appareil) in sim.appareils.iter().enumerate() {
-                let conflits = appareil.journal.conflits();
-                prop_assert_eq!(&conflits, &attendus(&appareil.journal.ecritures(), &registre));
-                let ensemble: BTreeSet<Conflit> = cumul[i].iter().cloned().collect();
-                prop_assert_eq!(ensemble.len(), cumul[i].len());
-                prop_assert_eq!(ensemble, conflits.into_iter().collect::<BTreeSet<_>>());
+            let ledger = sim.ledger();
+            for (i, device) in sim.devices.iter().enumerate() {
+                let conflicts = device.log.conflicts();
+                prop_assert_eq!(&conflicts, &expected_conflicts(&device.log.writes(), &ledger));
+                let as_set: BTreeSet<Conflict> = accumulated[i].iter().cloned().collect();
+                prop_assert_eq!(as_set.len(), accumulated[i].len());
+                prop_assert_eq!(as_set, conflicts.into_iter().collect::<BTreeSet<_>>());
             }
             Ok(())
         };
-        for action in &sc.actions {
-            let rapports = sim.appliquer(action);
-            verifier(&sim, rapports)?;
+        for action in &scn.actions {
+            let reports = sim.apply(action);
+            check(&sim, reports)?;
         }
-        let rapports = sim.tout_livrer();
-        verifier(&sim, rapports)?;
+        let reports = sim.deliver_all();
+        check(&sim, reports)?;
     }
 
-    /// PROP-ST01-2, US-1 cas 4 et 5, US-2 cas 5 : en fin de scénario, `R(S)` identique partout.
+    /// PROP-ST01-2, US-1 cases 4 and 5, US-2 case 5: at the end of a scenario, `R(S)` is identical everywhere.
     #[test]
-    fn convergence(sc in scenario()) {
-        let mut sim = Simulation::nouvelle(&sc);
-        for action in &sc.actions {
-            sim.appliquer(action);
+    fn convergence(scn in scenario()) {
+        let mut sim = Simulation::new(&scn);
+        for action in &scn.actions {
+            sim.apply(action);
         }
-        sim.tout_livrer();
-        let reference = r_de(&sim.appareils[0].journal);
-        for appareil in &sim.appareils[1..] {
-            prop_assert_eq!(&r_de(&appareil.journal), &reference);
+        sim.deliver_all();
+        let baseline = outputs_of(&sim.devices[0].log);
+        for device in &sim.devices[1..] {
+            prop_assert_eq!(&outputs_of(&device.log), &baseline);
         }
     }
 
-    /// INV-5 : commutativité, associativité, idempotence, neutre (US-1 cas 6, US-3 cas 8, AC-3.5).
+    /// INV-5: commutativity, associativity, idempotence, neutral element (US-1 case 6, US-3 case 8, AC-3.5).
     #[test]
-    fn inv_5_algebre((s, m1, m2) in s_et_masque()) {
-        let (a, reste) = partager(&s, &m1);
-        let (b, c) = partager(&reste, &m2[..reste.len()]);
-        let ab_c = r_de(&recu(&[&a, &b, &c]));
-        prop_assert_eq!(&r_de(&recu(&[&b, &a, &c])), &ab_c);
-        prop_assert_eq!(&r_de(&recu(&[&c, &b, &a])), &ab_c);
-        let bc: Vec<Ecriture> = b.iter().chain(&c).cloned().collect();
-        prop_assert_eq!(&r_de(&recu(&[&a, &bc])), &ab_c);
-        let mut x = recu(&[&a, &b, &c]);
-        prop_assert_eq!(x.fusionner(&a).unwrap(), Rapport::default());
-        prop_assert_eq!(x.fusionner(&[]).unwrap(), Rapport::default());
-        prop_assert_eq!(&r_de(&x), &ab_c);
+    fn inv_5_algebra((s, m1, m2) in s_and_masks()) {
+        let (a, rest) = split(&s, &m1);
+        let (b, c) = split(&rest, &m2[..rest.len()]);
+        let ab_c = outputs_of(&received(&[&a, &b, &c]));
+        prop_assert_eq!(&outputs_of(&received(&[&b, &a, &c])), &ab_c);
+        prop_assert_eq!(&outputs_of(&received(&[&c, &b, &a])), &ab_c);
+        let bc: Vec<Write> = b.iter().chain(&c).cloned().collect();
+        prop_assert_eq!(&outputs_of(&received(&[&a, &bc])), &ab_c);
+        let mut x = received(&[&a, &b, &c]);
+        prop_assert_eq!(x.merge(&a).unwrap(), Report::default());
+        prop_assert_eq!(x.merge(&[]).unwrap(), Report::default());
+        prop_assert_eq!(&outputs_of(&x), &ab_c);
     }
 
-    /// INV-ST01-1, US-1 cas 9 : sorties identiques sous permutation de l'ordre interne d'un lot.
+    /// INV-ST01-1, US-1 case 9: identical outputs under permutation of a batch's internal order.
     #[test]
-    fn determinisme_permutation((s, _, _) in s_et_masque(), graine in any::<u64>()) {
-        let mut permute = s.clone();
-        let mut r = graine;
-        for i in (1..permute.len()).rev() {
+    fn determinism_permutation((s, _, _) in s_and_masks(), seed in any::<u64>()) {
+        let mut permuted = s.clone();
+        let mut r = seed;
+        for i in (1..permuted.len()).rev() {
             r = r.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-            permute.swap(i, (r >> 33) as usize % (i + 1));
+            permuted.swap(i, (r >> 33) as usize % (i + 1));
         }
-        let (mut x, mut y) = (Journal::nouveau(app(100)), Journal::nouveau(app(100)));
-        prop_assert_eq!(x.fusionner(&s).unwrap(), y.fusionner(&permute).unwrap());
-        prop_assert_eq!(r_de(&x), r_de(&y));
+        let (mut x, mut y) = (Log::new(dev(100)), Log::new(dev(100)));
+        prop_assert_eq!(x.merge(&s).unwrap(), y.merge(&permuted).unwrap());
+        prop_assert_eq!(outputs_of(&x), outputs_of(&y));
     }
 }
 
-/// R-7 : sur les 1 000 scénarios de la graine, chaque famille d'E-1.1 apparaît au moins une fois.
+/// R-7: over the 1,000 scenarios of the seed, each E-1.1 family appears at least once.
 #[test]
-fn couverture_des_familles() {
-    let vues = RefCell::new(BTreeSet::new());
+fn family_coverage() {
+    let seen_families = RefCell::new(BTreeSet::new());
     TestRunner::new(config())
-        .run(&scenario(), |sc| {
-            let mut sim = Simulation::nouvelle(&sc);
-            for action in &sc.actions {
-                sim.appliquer(action);
+        .run(&scenario(), |scn| {
+            let mut sim = Simulation::new(&scn);
+            for action in &scn.actions {
+                sim.apply(action);
             }
-            sim.tout_livrer();
-            vues.borrow_mut().extend(sim.familles());
+            sim.deliver_all();
+            seen_families.borrow_mut().extend(sim.families());
             Ok(())
         })
         .unwrap();
-    let toutes = BTreeSet::from([
-        Famille::LotVide,
-        Famille::Doublon,
-        Famille::TroisAppareils,
-        Famille::MemeL,
-        Famille::MemeLCDeuxAppareils,
-        Famille::Suppression,
-        Famille::ConcurrentesMemeValeur,
-        Famille::EcrasementSequentiel,
-        Famille::ContreExempleF1,
+    let all_families = BTreeSet::from([
+        Family::EmptyBatch,
+        Family::Duplicate,
+        Family::ThreeDevices,
+        Family::SameL,
+        Family::SameLCTwoDevices,
+        Family::Delete,
+        Family::ConcurrentSameValue,
+        Family::SequentialOverwrite,
+        Family::CounterExampleF1,
     ]);
-    assert_eq!(vues.into_inner(), toutes);
+    assert_eq!(seen_families.into_inner(), all_families);
 }

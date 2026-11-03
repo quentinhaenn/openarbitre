@@ -1,42 +1,42 @@
 #!/usr/bin/env bash
-# Point d'entrée unique de la vérification : exécute scripts/ci.d/*.sh (archi ST-01 § CI, T-10).
+# Single verification entry point: runs scripts/ci.d/*.sh (ST-01 design, CI; T-10).
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
-# shellcheck source=scripts/outils.env
-. scripts/outils.env
+# shellcheck source=scripts/tools.env
+. scripts/tools.env
 
-# Pas de .pyc : un cache périmé fausserait les aides Python.
+# No .pyc: a stale cache would skew the Python helpers.
 export PYTHONDONTWRITEBYTECODE=1
 actions=false
 [ "${GITHUB_ACTIONS:-}" = true ] && actions=true
-rouge=0
-resume=()
+red=0
+summary=()
 
-echec() { # message
-  echo "ci : rouge : $1" >&2
+fail() { # message
+  echo "ci: red: $1" >&2
   $actions && echo "::error::$1"
-  rouge=1
+  red=1
 }
 
-# Versions : égalité exacte, sauf Python (minimum).
+# Versions: exact match, except Python (minimum).
 if ! command -v cargo-mutants >/dev/null 2>&1; then
-  echec "cargo-mutants absent du PATH. Installer : cargo install --locked cargo-mutants@${CARGO_MUTANTS_VERSION}"
+  fail "cargo-mutants not on PATH. Install: cargo install --locked cargo-mutants@${CARGO_MUTANTS_VERSION}"
 elif [ "$(cargo mutants --version | awk '{print $2}')" != "$CARGO_MUTANTS_VERSION" ]; then
-  echec "cargo-mutants $(cargo mutants --version | awk '{print $2}') au lieu de ${CARGO_MUTANTS_VERSION}. Installer : cargo install --locked --force cargo-mutants@${CARGO_MUTANTS_VERSION}"
+  fail "cargo-mutants $(cargo mutants --version | awk '{print $2}') instead of ${CARGO_MUTANTS_VERSION}. Install: cargo install --locked --force cargo-mutants@${CARGO_MUTANTS_VERSION}"
 fi
 if ! command -v gitleaks >/dev/null 2>&1; then
-  echec "gitleaks absent du PATH. Installer la version ${GITLEAKS_VERSION} (https://github.com/gitleaks/gitleaks/releases/tag/v${GITLEAKS_VERSION})"
+  fail "gitleaks not on PATH. Install version ${GITLEAKS_VERSION} (https://github.com/gitleaks/gitleaks/releases/tag/v${GITLEAKS_VERSION})"
 elif [ "$(gitleaks version | tr -d 'v ')" != "$GITLEAKS_VERSION" ]; then
-  echec "gitleaks $(gitleaks version) au lieu de ${GITLEAKS_VERSION}. Installer la version ${GITLEAKS_VERSION} (https://github.com/gitleaks/gitleaks/releases/tag/v${GITLEAKS_VERSION})"
+  fail "gitleaks $(gitleaks version) instead of ${GITLEAKS_VERSION}. Install version ${GITLEAKS_VERSION} (https://github.com/gitleaks/gitleaks/releases/tag/v${GITLEAKS_VERSION})"
 fi
 if ! python3 -c "import sys; sys.exit(0 if sys.version_info >= tuple(map(int, '${PYTHON_MIN}'.split('.'))) else 1)" 2>/dev/null; then
-  echec "python3 < ${PYTHON_MIN} (le python3 d'Xcode est en 3.9) : installer Python ${PYTHON_MIN} ou plus, par exemple brew install python@${PYTHON_MIN}"
+  fail "python3 < ${PYTHON_MIN} (Xcode's python3 is 3.9): install Python ${PYTHON_MIN} or later, e.g. brew install python@${PYTHON_MIN}"
 fi
 
-# Base du diff.
+# Diff base.
 if [ -z "${CI_BASE:-}" ]; then
   CI_BASE=$(git merge-base HEAD origin/main 2>/dev/null) || {
-    echec "base introuvable : fournir CI_BASE ou une branche origin/main"
+    fail "base not found: provide CI_BASE or an origin/main branch"
     CI_BASE=HEAD
   }
 fi
@@ -46,40 +46,40 @@ rm -rf "$CI_OUT"
 mkdir -p "$CI_OUT"
 export CI_BASE CI_HEAD CI_OUT
 
-# LC_COLLATE=C : glob trié dans l'ordre des octets, indépendant de la locale.
+# LC_COLLATE=C: glob sorted bytewise, independent of the locale.
 shopt -s nullglob
 LC_COLLATE=C
-controles=(scripts/ci.d/*.sh)
-if [ ${#controles[@]} -eq 0 ]; then
-  echec "scripts/ci.d/ est vide"
+checks=(scripts/ci.d/*.sh)
+if [ ${#checks[@]} -eq 0 ]; then
+  fail "scripts/ci.d/ is empty"
 else
-  for f in "${controles[@]}"; do
-    nom=$(basename "$f" .sh)
-    $actions && echo "::group::$nom"
-    echo "ci : $nom"
-    debut=$SECONDS
+  for f in "${checks[@]}"; do
+    name=$(basename "$f" .sh)
+    $actions && echo "::group::$name"
+    echo "ci: $name"
+    start=$SECONDS
     bash "$f"
     rc=$?
     $actions && echo "::endgroup::"
     if [ $rc -ne 0 ]; then
-      echec "$nom : code $rc"
-      resume+=("| $nom | rouge | $((SECONDS - debut)) s |")
+      fail "$name: code $rc"
+      summary+=("| $name | red | $((SECONDS - start)) s |")
     else
-      resume+=("| $nom | vert | $((SECONDS - debut)) s |")
+      summary+=("| $name | green | $((SECONDS - start)) s |")
     fi
   done
 fi
 
 if $actions && [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
   {
-    echo "| contrôle | verdict | durée |"
+    echo "| check | verdict | duration |"
     echo "|---|---|---|"
-    printf '%s\n' "${resume[@]}"
+    printf '%s\n' "${summary[@]}"
   } >>"$GITHUB_STEP_SUMMARY"
 fi
 
-if [ $rouge -ne 0 ]; then
-  echo "ci : ROUGE" >&2
+if [ $red -ne 0 ]; then
+  echo "ci: RED" >&2
   exit 1
 fi
-echo "ci : vert"
+echo "ci: green"

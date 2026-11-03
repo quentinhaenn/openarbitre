@@ -1,56 +1,56 @@
-//! Support des tests du cœur : configuration proptest, constructeurs, appareils simulés et oracle (T-3, T-7).
+//! Core test support: proptest config, constructors, simulated devices and oracle (T-3, T-7).
 #![allow(dead_code)]
 
 use arbitre_core::*;
 use proptest::test_runner::{Config as ProptestConfig, RngSeed};
 
-/// Graine fixe des propriétés : la changer passe par une PR (F-3).
-pub const GRAINE: u64 = 0x5701_0001;
+/// Fixed seed of the properties: changing it goes through a PR (F-3).
+pub const SEED: u64 = 0x5701_0001;
 
-/// Configuration unique de toutes les propriétés : 1 000 jeux, graine fixe (MANQUE-ST01-7, F-3).
+/// Single configuration of all properties: 1,000 cases, fixed seed (MANQUE-ST01-7, F-3).
 pub fn config() -> ProptestConfig {
     ProptestConfig {
         cases: 1000,
-        rng_seed: RngSeed::Fixed(GRAINE),
+        rng_seed: RngSeed::Fixed(SEED),
         ..ProptestConfig::default()
     }
 }
 
-pub fn app(n: u128) -> IdAppareil {
-    IdAppareil::depuis_u128(n)
+pub fn dev(n: u128) -> DeviceId {
+    DeviceId::from_u128(n)
 }
 
-pub fn marque(l: u64, c: u32, a: u128) -> Marque {
-    Marque { l, c, a: app(a) }
+pub fn stamp(l: u64, c: u32, a: u128) -> Stamp {
+    Stamp { l, c, a: dev(a) }
 }
 
-pub fn donnee(id: &str) -> IdDonnee {
-    IdDonnee {
+pub fn record(id: &str) -> RecordId {
+    RecordId {
         module: "m".into(),
-        genre: "g".into(),
+        category: "g".into(),
         id: id.into(),
     }
 }
 
-pub fn champ(nom: &str, valeur: &str) -> Quoi {
-    Quoi::Champ {
-        nom: Champ(nom.into()),
-        valeur: Valeur(valeur.as_bytes().to_vec()),
+pub fn field(name: &str, value: &str) -> Change {
+    Change::Field {
+        name: Field(name.into()),
+        value: Value(value.as_bytes().to_vec()),
     }
 }
 
-pub fn visee(nom: &str) -> Visee {
-    Visee::Champ(Champ(nom.into()))
+pub fn kind(name: &str) -> TargetKind {
+    TargetKind::Field(Field(name.into()))
 }
 
-/// Écriture construite à la main (lot forgé), `vu` vide sauf mention.
-pub fn ecriture(donnee: IdDonnee, quoi: Quoi, marque: Marque) -> Ecriture {
-    Ecriture {
-        donnee,
-        quoi,
-        marque,
-        vu: Vu::new(),
-        auteur: Auteur::UtilisateurCli,
+/// Hand-built write (forged batch), `seen` empty unless stated.
+pub fn write(record: RecordId, change: Change, stamp: Stamp) -> Write {
+    Write {
+        record,
+        change,
+        stamp,
+        seen: Seen::new(),
+        author: Author::CliUser,
     }
 }
 
@@ -58,99 +58,100 @@ pub fn ecriture(donnee: IdDonnee, quoi: Quoi, marque: Marque) -> Ecriture {
 #[allow(unused_imports)]
 pub use sim::*;
 
-/// Appareils simulés et oracle causal (T-7, F-2).
+/// Simulated devices and causal oracle (T-7, F-2).
 #[cfg(feature = "sim")]
 mod sim {
     use std::collections::{BTreeMap, BTreeSet};
 
-    use super::{app, champ, donnee};
+    use super::{dev, field, record};
     use arbitre_core::*;
     use proptest::prelude::*;
 
-    /// Identité d'une écriture `(cible, marque)`.
-    pub type Identite = (Cible, Marque);
+    /// Identity of a write `(target, stamp)`.
+    pub type Identity = (Target, Stamp);
 
-    /// Registre de vérité : pour chaque écriture émise, les identités connues de son auteur juste avant `ecrire`.
-    pub type Registre = BTreeMap<Identite, BTreeSet<Identite>>;
+    /// Ground-truth ledger: for each issued write, the identities known to its author just before `write`.
+    pub type Ledger = BTreeMap<Identity, BTreeSet<Identity>>;
 
-    /// Un appareil = un journal, une source d'heure et le registre de ses émissions.
-    pub struct Appareil {
-        pub journal: Journal,
-        pub horloge: HorlogeSimulee,
-        pub connu: Registre,
+    /// A device = a log, a time source and the ledger of its writes.
+    pub struct Device {
+        pub log: Log,
+        pub clock: SimClock,
+        pub known: Ledger,
     }
 
-    /// Action d'un scénario. Indices réduits modulo le nombre d'appareils.
+    /// Scenario action. Indices are reduced modulo the number of devices.
     #[derive(Debug, Clone)]
     pub enum Action {
-        /// `donnee ∈ {0, 1}`, `visee ∈ {0: f1, 1: f2, 2: suppression}`, `valeur ∈ {0: a, 1: b}`, `delta_pt ∈ −2..=2`.
-        Ecrire {
+        /// `record ∈ {0, 1}`, `kind ∈ {0: f1, 1: f2, 2: deletion}`, `value ∈ {0: a, 1: b}`, `delta_pt ∈ −2..=2`.
+        Put {
             i: usize,
-            donnee: u8,
-            visee: u8,
-            valeur: u8,
+            record: u8,
+            kind: u8,
+            value: u8,
             delta_pt: i8,
         },
-        /// Livre à `a` le sous-ensemble `selection` du journal de `de`, mélangé selon `ordre`.
-        Livrer {
-            de: usize,
-            a: usize,
+        /// Delivers to `to` the subset `selection` of the log of `from`, shuffled by `order`.
+        Deliver {
+            from: usize,
+            to: usize,
             selection: Vec<bool>,
-            ordre: u64,
+            order: u64,
         },
-        /// Relivre le dernier lot envoyé de `de` à `a`.
-        Relivrer { de: usize, a: usize },
+        /// Redelivers the last batch sent from `from` to `to`.
+        Redeliver { from: usize, to: usize },
     }
 
-    /// Scénario : 3 à 5 appareils, décalage d'heure initial par appareil, suite d'actions.
+    /// Scenario: 3 to 5 devices, initial time offset per device, sequence of actions.
     #[derive(Debug, Clone)]
     pub struct Scenario {
-        pub decalages: Vec<u64>,
+        pub offsets: Vec<u64>,
         pub actions: Vec<Action>,
     }
 
-    /// Familles d'E-1.1 à couvrir (R-7).
+    /// E-1.1 families to cover (R-7).
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-    pub enum Famille {
-        LotVide,
-        Doublon,
-        TroisAppareils,
-        MemeL,
-        MemeLCDeuxAppareils,
-        Suppression,
-        ConcurrentesMemeValeur,
-        EcrasementSequentiel,
-        ContreExempleF1,
+    pub enum Family {
+        EmptyBatch,
+        Duplicate,
+        ThreeDevices,
+        SameL,
+        SameLCTwoDevices,
+        Delete,
+        ConcurrentSameValue,
+        SequentialOverwrite,
+        CounterExampleF1,
     }
 
-    /// Heure de départ de chaque source, avant décalage.
+    /// Start time of each source, before offset.
     const BASE: u64 = 100;
 
-    /// Générateur de scénarios (E-1.1, R-7) : petits domaines, collisions fréquentes.
+    /// Scenario generator (E-1.1, R-7): small domains, frequent collisions.
     pub fn scenario() -> BoxedStrategy<Scenario> {
-        let ecrire = (0usize..5, 0u8..2, 0u8..3, 0u8..2, -2i8..=2).prop_map(
-            |(i, donnee, visee, valeur, delta_pt)| Action::Ecrire {
+        let write = (0usize..5, 0u8..2, 0u8..3, 0u8..2, -2i8..=2).prop_map(
+            |(i, record, kind, value, delta_pt)| Action::Put {
                 i,
-                donnee,
-                visee,
-                valeur,
+                record,
+                kind,
+                value,
                 delta_pt,
             },
         );
-        let livrer = (
+        let deliver = (
             0usize..5,
             0usize..5,
             prop::collection::vec(any::<bool>(), 1..8),
             any::<u64>(),
         )
-            .prop_map(|(de, a, selection, ordre)| Action::Livrer {
-                de,
-                a,
+            .prop_map(|(from, to, selection, order)| Action::Deliver {
+                from,
+                to,
                 selection,
-                ordre,
+                order,
             });
-        let relivrer = (0usize..5, 0usize..5).prop_map(|(de, a)| Action::Relivrer { de, a });
-        let action = prop_oneof![6 => ecrire, 3 => livrer, 1 => relivrer];
+        let redeliver =
+            (0usize..5, 0usize..5).prop_map(|(from, to)| Action::Redeliver { from, to });
+        let action = prop_oneof![6 => write, 3 => deliver, 1 => redeliver];
         (3usize..=5)
             .prop_flat_map(move |n| {
                 (
@@ -158,272 +159,261 @@ mod sim {
                     prop::collection::vec(action.clone(), 4..24),
                 )
             })
-            .prop_map(|(decalages, actions)| Scenario { decalages, actions })
+            .prop_map(|(offsets, actions)| Scenario { offsets, actions })
             .boxed()
     }
 
-    /// Exécution d'un scénario.
+    /// Execution of a scenario.
     pub struct Simulation {
-        pub appareils: Vec<Appareil>,
-        derniers: BTreeMap<(usize, usize), Vec<Ecriture>>,
-        evenements: BTreeSet<Famille>,
+        pub devices: Vec<Device>,
+        last_sent: BTreeMap<(usize, usize), Vec<Write>>,
+        events: BTreeSet<Family>,
     }
 
-    fn identites(journal: &Journal) -> BTreeSet<Identite> {
-        journal
-            .ecritures()
-            .iter()
-            .map(|w| (w.cible(), w.marque))
-            .collect()
+    fn identities(log: &Log) -> BTreeSet<Identity> {
+        log.writes().iter().map(|w| (w.target(), w.stamp)).collect()
     }
 
-    /// `y ∈ connu` sur la cible de `x` avec `marque(y) ≥ marque(x)`.
-    fn connait(connu: &BTreeSet<Identite>, x: &Ecriture) -> bool {
-        let cible = x.cible();
-        connu
-            .range((cible.clone(), x.marque)..)
+    /// `y ∈ known` on the target of `x` with `stamp(y) ≥ stamp(x)`.
+    fn knows(known: &BTreeSet<Identity>, x: &Write) -> bool {
+        let target = x.target();
+        known
+            .range((target.clone(), x.stamp)..)
             .next()
-            .is_some_and(|(c, _)| *c == cible)
+            .is_some_and(|(c, _)| *c == target)
     }
 
     impl Simulation {
-        pub fn nouvelle(sc: &Scenario) -> Self {
-            let appareils = sc
-                .decalages
+        pub fn new(scn: &Scenario) -> Self {
+            let devices = scn
+                .offsets
                 .iter()
                 .enumerate()
-                .map(|(i, d)| Appareil {
-                    journal: Journal::nouveau(app(i as u128 + 1)),
-                    horloge: HorlogeSimulee::nouvelle(BASE + d),
-                    connu: Registre::new(),
+                .map(|(i, d)| Device {
+                    log: Log::new(dev(i as u128 + 1)),
+                    clock: SimClock::new(BASE + d),
+                    known: Ledger::new(),
                 })
                 .collect();
             Self {
-                appareils,
-                derniers: BTreeMap::new(),
-                evenements: BTreeSet::new(),
+                devices,
+                last_sent: BTreeMap::new(),
+                events: BTreeSet::new(),
             }
         }
 
-        /// Applique une action ; rend les rapports de fusion produits, par appareil récepteur.
-        pub fn appliquer(&mut self, action: &Action) -> Vec<(usize, Rapport)> {
-            let n = self.appareils.len();
+        /// Applies an action; returns the merge reports produced, per receiving device.
+        pub fn apply(&mut self, action: &Action) -> Vec<(usize, Report)> {
+            let n = self.devices.len();
             match action {
-                Action::Ecrire {
+                Action::Put {
                     i,
-                    donnee: d,
-                    visee,
-                    valeur,
+                    record: d,
+                    kind,
+                    value,
                     delta_pt,
                 } => {
-                    let appareil = &mut self.appareils[i % n];
+                    let device = &mut self.devices[i % n];
                     match delta_pt {
-                        1.. => appareil.horloge.avancer(*delta_pt as u64),
-                        _ => appareil.horloge.reculer(delta_pt.unsigned_abs() as u64),
+                        1.. => device.clock.advance(*delta_pt as u64),
+                        _ => device.clock.rewind(delta_pt.unsigned_abs() as u64),
                     }
-                    let quoi = match visee {
-                        2 => Quoi::Suppression,
-                        v => champ(["f1", "f2"][*v as usize], ["a", "b"][*valeur as usize]),
+                    let change = match kind {
+                        2 => Change::Delete,
+                        v => field(["f1", "f2"][*v as usize], ["a", "b"][*value as usize]),
                     };
-                    let connu = identites(&appareil.journal);
-                    let pt = appareil.horloge.now();
-                    let w = appareil.journal.ecrire(
+                    let known = identities(&device.log);
+                    let pt = device.clock.now();
+                    let w = device.log.write(
                         pt,
-                        donnee(["d0", "d1"][*d as usize]),
-                        quoi,
-                        Auteur::UtilisateurCli,
+                        record(["d0", "d1"][*d as usize]),
+                        change,
+                        Author::CliUser,
                     );
-                    let w = w.expect("écriture du scénario valide");
-                    appareil.connu.insert((w.cible(), w.marque), connu);
+                    let w = w.expect("valid scenario write");
+                    device.known.insert((w.target(), w.stamp), known);
                     Vec::new()
                 }
-                Action::Livrer {
-                    de,
-                    a,
+                Action::Deliver {
+                    from,
+                    to,
                     selection,
-                    ordre,
+                    order,
                 } => {
-                    let (de, a) = (de % n, (de % n + 1 + a % (n - 1)) % n);
-                    let mut lot: Vec<Ecriture> = self.appareils[de]
-                        .journal
-                        .ecritures()
+                    let (from, to) = (from % n, (from % n + 1 + to % (n - 1)) % n);
+                    let mut batch: Vec<Write> = self.devices[from]
+                        .log
+                        .writes()
                         .into_iter()
                         .enumerate()
                         .filter(|(k, _)| selection[k % selection.len()])
                         .map(|(_, w)| w)
                         .collect();
-                    let mut r = *ordre;
-                    for k in (1..lot.len()).rev() {
+                    let mut r = *order;
+                    for k in (1..batch.len()).rev() {
                         r = r
                             .wrapping_mul(6364136223846793005)
                             .wrapping_add(1442695040888963407);
-                        lot.swap(k, (r >> 33) as usize % (k + 1));
+                        batch.swap(k, (r >> 33) as usize % (k + 1));
                     }
-                    self.derniers.insert((de, a), lot.clone());
-                    vec![self.livrer(a, &lot)]
+                    self.last_sent.insert((from, to), batch.clone());
+                    vec![self.deliver(to, &batch)]
                 }
-                Action::Relivrer { de, a } => {
-                    let (de, a) = (de % n, (de % n + 1 + a % (n - 1)) % n);
-                    let lot = self.derniers.get(&(de, a)).cloned().unwrap_or_default();
-                    vec![self.livrer(a, &lot)]
-                }
-            }
-        }
-
-        fn livrer(&mut self, a: usize, lot: &[Ecriture]) -> (usize, Rapport) {
-            let journal = &mut self.appareils[a].journal;
-            let connues = journal.ecritures();
-            if lot.is_empty() {
-                self.evenements.insert(Famille::LotVide);
-            }
-            if lot.iter().any(|w| connues.contains(w)) {
-                self.evenements.insert(Famille::Doublon);
-            }
-            (a, journal.fusionner(lot).expect("lot du simulateur valide"))
-        }
-
-        /// Livre tout à tous ; rend les rapports produits.
-        pub fn tout_livrer(&mut self) -> Vec<(usize, Rapport)> {
-            let n = self.appareils.len();
-            let mut rapports = Vec::new();
-            for de in 0..n {
-                for a in (0..n).filter(|a| *a != de) {
-                    let lot = self.appareils[de].journal.ecritures();
-                    rapports.push(self.livrer(a, &lot));
+                Action::Redeliver { from, to } => {
+                    let (from, to) = (from % n, (from % n + 1 + to % (n - 1)) % n);
+                    let batch = self.last_sent.get(&(from, to)).cloned().unwrap_or_default();
+                    vec![self.deliver(to, &batch)]
                 }
             }
-            rapports
         }
 
-        /// Union des registres de tous les appareils.
-        pub fn registre(&self) -> Registre {
-            self.appareils
-                .iter()
-                .flat_map(|a| a.connu.clone())
-                .collect()
-        }
-
-        /// Familles d'E-1.1 rencontrées depuis le début de la simulation.
-        pub fn familles(&self) -> BTreeSet<Famille> {
-            let mut familles = self.evenements.clone();
-            let registre = self.registre();
-            let s: BTreeSet<Ecriture> = self
-                .appareils
-                .iter()
-                .flat_map(|a| a.journal.ecritures())
-                .collect();
-            let s: Vec<Ecriture> = s.into_iter().collect();
-            if self.appareils.len() >= 3 {
-                familles.insert(Famille::TroisAppareils);
+        fn deliver(&mut self, to: usize, batch: &[Write]) -> (usize, Report) {
+            let log = &mut self.devices[to].log;
+            let known_writes = log.writes();
+            if batch.is_empty() {
+                self.events.insert(Family::EmptyBatch);
             }
-            if s.iter().any(|w| matches!(w.quoi, Quoi::Suppression)) {
-                familles.insert(Famille::Suppression);
+            if batch.iter().any(|w| known_writes.contains(w)) {
+                self.events.insert(Family::Duplicate);
+            }
+            (to, log.merge(batch).expect("valid simulator batch"))
+        }
+
+        /// Delivers everything to everyone; returns the reports produced.
+        pub fn deliver_all(&mut self) -> Vec<(usize, Report)> {
+            let n = self.devices.len();
+            let mut reports = Vec::new();
+            for from in 0..n {
+                for to in (0..n).filter(|to| *to != from) {
+                    let batch = self.devices[from].log.writes();
+                    reports.push(self.deliver(to, &batch));
+                }
+            }
+            reports
+        }
+
+        /// Union of the ledgers of all devices.
+        pub fn ledger(&self) -> Ledger {
+            self.devices.iter().flat_map(|a| a.known.clone()).collect()
+        }
+
+        /// E-1.1 families met since the start of the simulation.
+        pub fn families(&self) -> BTreeSet<Family> {
+            let mut families = self.events.clone();
+            let ledger = self.ledger();
+            let s: BTreeSet<Write> = self.devices.iter().flat_map(|a| a.log.writes()).collect();
+            let s: Vec<Write> = s.into_iter().collect();
+            if self.devices.len() >= 3 {
+                families.insert(Family::ThreeDevices);
+            }
+            if s.iter().any(|w| matches!(w.change, Change::Delete)) {
+                families.insert(Family::Delete);
             }
             for (k, w) in s.iter().enumerate() {
                 for x in &s[k + 1..] {
-                    if w.marque == x.marque {
+                    if w.stamp == x.stamp {
                         continue;
                     }
-                    if w.marque.l == x.marque.l {
-                        familles.insert(Famille::MemeL);
-                        if w.marque.c == x.marque.c {
-                            familles.insert(Famille::MemeLCDeuxAppareils);
+                    if w.stamp.l == x.stamp.l {
+                        families.insert(Family::SameL);
+                        if w.stamp.c == x.stamp.c {
+                            families.insert(Family::SameLCTwoDevices);
                         }
                     }
-                    if !exclusives(w, x) {
+                    if !exclusive(w, x) {
                         continue;
                     }
                     let (wx, xw) = (
-                        connait(&registre[&(w.cible(), w.marque)], x),
-                        connait(&registre[&(x.cible(), x.marque)], w),
+                        knows(&ledger[&(w.target(), w.stamp)], x),
+                        knows(&ledger[&(x.target(), x.stamp)], w),
                     );
-                    if wx != xw && w.quoi != x.quoi {
-                        familles.insert(Famille::EcrasementSequentiel);
+                    if wx != xw && w.change != x.change {
+                        families.insert(Family::SequentialOverwrite);
                     }
                     if !wx && !xw {
-                        if w.quoi == x.quoi {
-                            familles.insert(Famille::ConcurrentesMemeValeur);
+                        if w.change == x.change {
+                            families.insert(Family::ConcurrentSameValue);
                         }
-                        let (champ, suppression) = if matches!(w.quoi, Quoi::Suppression) {
+                        let (field, deletion) = if matches!(w.change, Change::Delete) {
                             (x, w)
                         } else {
                             (w, x)
                         };
-                        let autre_champ = registre[&(suppression.cible(), suppression.marque)]
-                            .iter()
-                            .any(|(c, m)| {
-                                c.donnee == champ.donnee
-                                    && c.visee != champ.cible().visee
-                                    && *c != suppression.cible()
-                                    && *m > champ.marque
-                            });
-                        if matches!(suppression.quoi, Quoi::Suppression) && autre_champ {
-                            familles.insert(Famille::ContreExempleF1);
+                        let autre_champ =
+                            ledger[&(deletion.target(), deletion.stamp)]
+                                .iter()
+                                .any(|(c, m)| {
+                                    c.record == field.record
+                                        && c.kind != field.target().kind
+                                        && *c != deletion.target()
+                                        && *m > field.stamp
+                                });
+                        if matches!(deletion.change, Change::Delete) && autre_champ {
+                            families.insert(Family::CounterExampleF1);
                         }
                     }
                 }
             }
-            familles
+            families
         }
     }
 
-    /// Même donnée, et même champ ou suppression contre champ.
-    fn exclusives(w: &Ecriture, x: &Ecriture) -> bool {
-        w.donnee == x.donnee
-            && match (&w.quoi, &x.quoi) {
-                (Quoi::Champ { nom: a, .. }, Quoi::Champ { nom: b, .. }) => a == b,
-                (Quoi::Suppression, Quoi::Suppression) => false,
+    /// Same record, and same field or deletion against field.
+    fn exclusive(w: &Write, x: &Write) -> bool {
+        w.record == x.record
+            && match (&w.change, &x.change) {
+                (Change::Field { name: a, .. }, Change::Field { name: b, .. }) => a == b,
+                (Change::Delete, Change::Delete) => false,
                 _ => true,
             }
     }
 
-    fn rang(w: &Ecriture) -> (Marque, Cible, Option<Valeur>, Vu, Auteur) {
-        let valeur = match &w.quoi {
-            Quoi::Champ { valeur, .. } => Some(valeur.clone()),
-            Quoi::Suppression => None,
+    fn rank(w: &Write) -> (Stamp, Target, Option<Value>, Seen, Author) {
+        let value = match &w.change {
+            Change::Field { value, .. } => Some(value.clone()),
+            Change::Delete => None,
         };
-        (w.marque, w.cible(), valeur, w.vu.clone(), w.auteur)
+        (w.stamp, w.target(), value, w.seen.clone(), w.author)
     }
 
-    /// Oracle (F-2) : conflits de `s` par force brute sur toutes les paires, d'après le seul registre.
-    /// `a_vu*(w, x) ⇔ ∃ y ∈ connu(w), cible(y) = cible(x) ∧ marque(y) ≥ marque(x)` ; normalisés et triés (A-4).
-    pub fn attendus(s: &[Ecriture], registre: &Registre) -> Vec<Conflit> {
-        let mut conflits = Vec::new();
+    /// Oracle (F-2): conflicts of `s` by brute force over all pairs, from the ledger alone.
+    /// `has_seen*(w, x) ⇔ ∃ y ∈ known(w), target(y) = target(x) ∧ stamp(y) ≥ stamp(x)`; normalized and sorted (A-4).
+    pub fn expected_conflicts(s: &[Write], ledger: &Ledger) -> Vec<Conflict> {
+        let mut conflicts = Vec::new();
         for (k, w) in s.iter().enumerate() {
             for x in &s[k + 1..] {
-                if !exclusives(w, x) || w.quoi == x.quoi {
+                if !exclusive(w, x) || w.change == x.change {
                     continue;
                 }
-                let a_vu =
-                    |a: &Ecriture, b: &Ecriture| connait(&registre[&(a.cible(), a.marque)], b);
+                let a_vu = |a: &Write, b: &Write| knows(&ledger[&(a.target(), a.stamp)], b);
                 if a_vu(w, x) || a_vu(x, w) {
                     continue;
                 }
-                let (retenue, ecartee) = if rang(w) > rang(x) { (w, x) } else { (x, w) };
-                let ((Quoi::Champ { nom, .. }, _) | (_, Quoi::Champ { nom, .. })) =
-                    (&w.quoi, &x.quoi)
+                let (retained, discarded) = if rank(w) > rank(x) { (w, x) } else { (x, w) };
+                let ((Change::Field { name, .. }, _) | (_, Change::Field { name, .. })) =
+                    (&w.change, &x.change)
                 else {
                     continue;
                 };
-                conflits.push(Conflit {
-                    donnee: w.donnee.clone(),
-                    champ: nom.clone(),
-                    retenue: retenue.clone(),
-                    ecartee: ecartee.clone(),
+                conflicts.push(Conflict {
+                    record: w.record.clone(),
+                    field: name.clone(),
+                    retained: retained.clone(),
+                    discarded: discarded.clone(),
                 });
             }
         }
-        let cle = |k: &Conflit| {
+        let cle = |k: &Conflict| {
             (
-                k.donnee.clone(),
-                k.champ.clone(),
-                k.retenue.marque,
-                k.ecartee.marque,
-                rang(&k.retenue),
-                rang(&k.ecartee),
+                k.record.clone(),
+                k.field.clone(),
+                k.retained.stamp,
+                k.discarded.stamp,
+                rank(&k.retained),
+                rank(&k.discarded),
             )
         };
-        conflits.sort_by_key(cle);
-        conflits
+        conflicts.sort_by_key(cle);
+        conflicts
     }
 }

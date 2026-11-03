@@ -1,59 +1,59 @@
-//! Port `Clock` et son simulateur (archi ST-01 § Interfaces, T-3).
+//! `Clock` port and its simulator (ST-01 design, Interfaces; T-3).
 
-/// Source d'heure physique, en millisecondes UTC depuis l'époque Unix (RG-ST01-4.4).
+/// Physical time source, in UTC milliseconds since the Unix epoch (RG-ST01-4.4).
 pub trait Clock {
     fn now(&self) -> u64;
 }
 
-/// Source d'heure commandable, une par appareil simulé (PROP-ST01-1).
+/// Controllable time source, one per simulated device (PROP-ST01-1).
 ///
-/// Contrat (`06_skeleton.md`) : `now()` rend la dernière heure posée ;
-/// après `figer()`, `avancer` et `reculer` sont sans effet jusqu'au prochain `fixer`.
+/// Contract (`06_skeleton.md`): `now()` returns the last time set;
+/// after `freeze()`, `advance` and `rewind` do nothing until the next `set`.
 #[cfg(feature = "sim")]
 #[derive(Debug, Default)]
-pub struct HorlogeSimulee {
+pub struct SimClock {
     t: core::cell::Cell<u64>,
-    figee: core::cell::Cell<bool>,
+    frozen: core::cell::Cell<bool>,
 }
 
 #[cfg(feature = "sim")]
-impl HorlogeSimulee {
-    /// Source posée sur `t`, non figée.
-    pub fn nouvelle(t: u64) -> Self {
+impl SimClock {
+    /// Source set to `t`, not frozen.
+    pub fn new(t: u64) -> Self {
         Self {
             t: t.into(),
-            figee: false.into(),
+            frozen: false.into(),
         }
     }
 
-    /// Pose l'heure à `t` et lève le gel.
-    pub fn fixer(&self, t: u64) {
+    /// Sets the time to `t` and unfreezes.
+    pub fn set(&self, t: u64) {
         self.t.set(t);
-        self.figee.set(false);
+        self.frozen.set(false);
     }
 
-    /// Avance de `delta` ms (sans effet si figée).
-    pub fn avancer(&self, delta: u64) {
-        if !self.figee.get() {
+    /// Moves forward by `delta` ms (no-op if frozen).
+    pub fn advance(&self, delta: u64) {
+        if !self.frozen.get() {
             self.t.set(self.t.get().saturating_add(delta));
         }
     }
 
-    /// Recule de `delta` ms, borné à 0 (sans effet si figée).
-    pub fn reculer(&self, delta: u64) {
-        if !self.figee.get() {
+    /// Moves back by `delta` ms, floored at 0 (no-op if frozen).
+    pub fn rewind(&self, delta: u64) {
+        if !self.frozen.get() {
             self.t.set(self.t.get().saturating_sub(delta));
         }
     }
 
-    /// Gèle l'heure courante.
-    pub fn figer(&self) {
-        self.figee.set(true);
+    /// Freezes the current time.
+    pub fn freeze(&self) {
+        self.frozen.set(true);
     }
 }
 
 #[cfg(feature = "sim")]
-impl Clock for HorlogeSimulee {
+impl Clock for SimClock {
     fn now(&self) -> u64 {
         self.t.get()
     }

@@ -1,9 +1,9 @@
-//! Cœur d'arbitre : marques, horloge hybride, écritures, fusion.
-//! Architecture : `.ctdd/stories/ST-01/03_archi.md` et amendements A-1 à A-11 de `04_plan.md`.
-//! `no_std` + `alloc` : le compilateur interdit l'heure système et les E/S (A-6).
+//! Core of arbitre: stamps, hybrid clock, writes, merge.
+//! Design: `.ctdd/stories/ST-01/03_archi.md` and amendments A-1 to A-11 in `04_plan.md` (French history).
+//! `no_std` + `alloc`: the compiler forbids system time and I/O (A-6).
 
 #![no_std]
-// `vec!` pour les mutants « fonction vide » de cargo-mutants (07_review R-1).
+// `vec!` for cargo-mutants "empty function" mutants (07_review R-1).
 #[allow(unused_imports)]
 #[macro_use]
 extern crate alloc;

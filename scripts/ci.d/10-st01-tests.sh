@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Contrôle : tests Rust et Python (RG-ST01-6.1). Contrat : archi ST-01 § CI.
+# Check: Rust and Python tests (RG-ST01-6.1). Contract: ST-01 design, CI.
 set -uo pipefail
 rc=0
 cargo test --workspace --all-features --locked || rc=1

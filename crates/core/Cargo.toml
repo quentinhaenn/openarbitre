@@ -9,10 +9,10 @@ rust-version.workspace = true
 proptest = { workspace = true }
 
 [features]
-# HorlogeSimulee (clock.rs), pour les tests et les appareils simulés.
+# SimClock (clock.rs), for tests and simulated devices.
 sim = []
 
-# Tests qui utilisent HorlogeSimulee : lancer avec --all-features (CI : 10-st01-tests.sh).
+# Tests using SimClock: run with --all-features (CI: 10-st01-tests.sh).
 [[test]]
 name = "hlc"
 required-features = ["sim"]

@@ -1,213 +1,213 @@
-//! Écritures et validation de lot (T-4). Matrice US-4, cas 11 ; A-1, A-11.
-//! Cas 12 et 13 (auteur hors liste, appareil ≠ marque.a) : non représentables, écart E-1 de l'archi.
+//! Writes and batch validation (T-4). US-4 matrix, case 11; A-1, A-11.
+//! Cases 12 and 13 (author outside the list, device ≠ stamp.a): not representable, deviation E-1 of the design.
 
 mod support;
 
 use arbitre_core::*;
 use support::*;
 
-fn valide() -> Ecriture {
-    let mut w = ecriture(donnee("d"), champ("f", "v"), marque(10, 0, 1));
-    w.vu.insert(visee("f"), marque(9, 0, 2));
-    w.vu.insert(Visee::Suppression, marque(5, 3, 1));
+fn valid() -> Write {
+    let mut w = write(record("d"), field("f", "v"), stamp(10, 0, 1));
+    w.seen.insert(kind("f"), stamp(9, 0, 2));
+    w.seen.insert(TargetKind::Delete, stamp(5, 3, 1));
     w
 }
 
-fn refus(w: Ecriture) -> Result<(), ErreurLot> {
-    valider(&[valide(), w])
+fn rejected(w: Write) -> Result<(), BatchError> {
+    validate(&[valid(), w])
 }
 
 #[test]
-fn us4_cas11_ecriture_complete_de_chaque_auteur() {
+fn us4_case11_full_write_of_each_author() {
     let auteurs = [
-        Auteur::UtilisateurCli,
-        Auteur::UtilisateurInterface,
-        Auteur::Assistant,
-        Auteur::Systeme,
+        Author::CliUser,
+        Author::UiUser,
+        Author::Assistant,
+        Author::System,
     ];
-    let lot: Vec<Ecriture> = auteurs
+    let batch: Vec<Write> = auteurs
         .iter()
-        .map(|&auteur| Ecriture { auteur, ..valide() })
+        .map(|&author| Write { author, ..valid() })
         .collect();
-    assert_eq!(valider(&lot), Ok(()));
-    let suppression = Ecriture {
-        quoi: Quoi::Suppression,
-        ..valide()
+    assert_eq!(validate(&batch), Ok(()));
+    let deletion = Write {
+        change: Change::Delete,
+        ..valid()
     };
-    assert_eq!(valider(&[suppression]), Ok(()));
+    assert_eq!(validate(&[deletion]), Ok(()));
 }
 
 #[test]
-fn lot_vide_valide() {
-    assert_eq!(valider(&[]), Ok(()));
+fn empty_batch_is_valid() {
+    assert_eq!(validate(&[]), Ok(()));
 }
 
 #[test]
-fn cible_et_appareil() {
-    let w = valide();
+fn target_and_device() {
+    let w = valid();
     assert_eq!(
-        w.cible(),
-        Cible {
-            donnee: donnee("d"),
-            visee: visee("f")
+        w.target(),
+        Target {
+            record: record("d"),
+            kind: kind("f")
         }
     );
-    assert_eq!(w.appareil(), app(1));
-    let s = Ecriture {
-        quoi: Quoi::Suppression,
-        ..valide()
+    assert_eq!(w.device(), dev(1));
+    let s = Write {
+        change: Change::Delete,
+        ..valid()
     };
     assert_eq!(
-        s.cible(),
-        Cible {
-            donnee: donnee("d"),
-            visee: Visee::Suppression
+        s.target(),
+        Target {
+            record: record("d"),
+            kind: TargetKind::Delete
         }
     );
 }
 
 #[test]
-fn vu_egal_a_la_marque_refuse() {
-    let mut w = valide();
-    w.vu.insert(visee("f"), w.marque);
+fn seen_equal_to_stamp_rejected() {
+    let mut w = valid();
+    w.seen.insert(kind("f"), w.stamp);
     assert_eq!(
-        refus(w),
-        Err(ErreurLot {
+        rejected(w),
+        Err(BatchError {
             index: 1,
-            raison: Raison::VuNonAnterieur
+            reason: Reason::SeenNotBefore
         })
     );
 }
 
 #[test]
-fn vu_superieur_a_la_marque_refuse() {
-    let mut w = valide();
-    w.vu.insert(visee("f"), marque(11, 0, 0));
+fn seen_greater_than_stamp_rejected() {
+    let mut w = valid();
+    w.seen.insert(kind("f"), stamp(11, 0, 0));
     assert_eq!(
-        refus(w),
-        Err(ErreurLot {
+        rejected(w),
+        Err(BatchError {
             index: 1,
-            raison: Raison::VuNonAnterieur
+            reason: Reason::SeenNotBefore
         })
     );
 }
 
 #[test]
-fn seule_la_deuxieme_entree_de_vu_fautive() {
-    let mut w = valide();
-    // Suppression < Champ : la première entrée (suppression) est valide, la seconde (champ) fautive.
-    w.vu.insert(visee("f"), marque(10, 0, 2));
+fn only_second_seen_entry_faulty() {
+    let mut w = valid();
+    // Delete < Field: the first entry (deletion) is valid, the second (field) is faulty.
+    w.seen.insert(kind("f"), stamp(10, 0, 2));
     assert_eq!(
-        refus(w),
-        Err(ErreurLot {
+        rejected(w),
+        Err(BatchError {
             index: 1,
-            raison: Raison::VuNonAnterieur
+            reason: Reason::SeenNotBefore
         })
     );
 }
 
 #[test]
-fn vu_en_trop_sur_un_autre_champ_accepte() {
-    let mut w = valide();
-    w.vu.insert(visee("autre"), marque(1, 0, 3));
-    assert_eq!(valider(&[w]), Ok(()));
+fn extra_seen_on_another_field_accepted() {
+    let mut w = valid();
+    w.seen.insert(kind("autre"), stamp(1, 0, 3));
+    assert_eq!(validate(&[w]), Ok(()));
 }
 
 #[test]
-fn identifiants_vides_refuses() {
-    let vides = [
-        Ecriture {
-            donnee: IdDonnee {
+fn empty_identifiers_rejected() {
+    let empties = [
+        Write {
+            record: RecordId {
                 module: String::new(),
-                ..donnee("d")
+                ..record("d")
             },
-            ..valide()
+            ..valid()
         },
-        Ecriture {
-            donnee: IdDonnee {
-                genre: String::new(),
-                ..donnee("d")
+        Write {
+            record: RecordId {
+                category: String::new(),
+                ..record("d")
             },
-            ..valide()
+            ..valid()
         },
-        Ecriture {
-            donnee: donnee(""),
-            ..valide()
+        Write {
+            record: record(""),
+            ..valid()
         },
-        Ecriture {
-            quoi: champ("", "v"),
-            ..valide()
+        Write {
+            change: field("", "v"),
+            ..valid()
         },
     ];
-    for w in vides {
+    for w in empties {
         assert_eq!(
-            refus(w),
-            Err(ErreurLot {
+            rejected(w),
+            Err(BatchError {
                 index: 1,
-                raison: Raison::IdentifiantVide
+                reason: Reason::EmptyIdentifier
             })
         );
     }
 }
 
 #[test]
-fn valeur_vide_acceptee() {
+fn empty_value_accepted() {
     assert_eq!(
-        valider(&[Ecriture {
-            quoi: champ("f", ""),
-            ..valide()
+        validate(&[Write {
+            change: field("f", ""),
+            ..valid()
         }]),
         Ok(())
     );
 }
 
 #[test]
-fn marque_l_max_refusee() {
-    let w = Ecriture {
-        marque: marque(L_MAX, 0, 1),
-        ..valide()
+fn stamp_l_max_rejected() {
+    let w = Write {
+        stamp: stamp(L_MAX, 0, 1),
+        ..valid()
     };
     assert_eq!(
-        refus(w),
-        Err(ErreurLot {
+        rejected(w),
+        Err(BatchError {
             index: 1,
-            raison: Raison::MarqueHorsBornes
+            reason: Reason::StampOutOfBounds
         })
     );
 }
 
 #[test]
-fn marque_l_max_moins_un_acceptee() {
+fn stamp_l_max_minus_one_accepted() {
     assert_eq!(
-        valider(&[Ecriture {
-            marque: marque(L_MAX - 1, 0, 1),
-            ..valide()
+        validate(&[Write {
+            stamp: stamp(L_MAX - 1, 0, 1),
+            ..valid()
         }]),
         Ok(())
     );
 }
 
 #[test]
-fn index_de_la_premiere_fautive() {
-    let fautive = Ecriture {
-        donnee: donnee(""),
-        ..valide()
+fn index_of_first_faulty() {
+    let faulty = Write {
+        record: record(""),
+        ..valid()
     };
-    let lot = [
-        valide(),
-        valide(),
-        fautive.clone(),
-        Ecriture {
-            marque: marque(L_MAX, 0, 1),
-            ..valide()
+    let batch = [
+        valid(),
+        valid(),
+        faulty.clone(),
+        Write {
+            stamp: stamp(L_MAX, 0, 1),
+            ..valid()
         },
-        fautive,
+        faulty,
     ];
     assert_eq!(
-        valider(&lot),
-        Err(ErreurLot {
+        validate(&batch),
+        Err(BatchError {
             index: 2,
-            raison: Raison::IdentifiantVide
+            reason: Reason::EmptyIdentifier
         })
     );
 }

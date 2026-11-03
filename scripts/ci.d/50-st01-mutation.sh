@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Contrôle : mutation via scripts/lib/mutation.py, canaux d'exclusion (RG-ST01-7.x, A-7). Contrat : archi ST-01 § CI.
+# Check: mutation via scripts/lib/mutation.py, exclusion channels (RG-ST01-7.x, A-7). Contract: ST-01 design, CI.
 set -uo pipefail
 rc=0
 
-# A-7 : canaux d'exclusion interdits (--exclude n'existe que dans cette ligne de commande).
+# A-7: exclusion channels forbidden (--exclude exists only on this command line).
 if git grep -l -e 'mutants::skip' -- 'crates/**/*.rs'; then
-  echo "50-st01-mutation : mutants::skip interdit (fichiers ci-dessus)" >&2
+  echo "50-st01-mutation : mutants::skip forbidden (files above)" >&2
   rc=1
 fi
 if git ls-files | grep -E '(^|/)mutants\.toml$'; then
-  echo "50-st01-mutation : mutants.toml interdit (fichiers ci-dessus)" >&2
+  echo "50-st01-mutation : mutants.toml forbidden (files above)" >&2
   rc=1
 fi
 
@@ -17,17 +17,17 @@ git diff "$CI_BASE...$CI_HEAD" >"$CI_OUT/diff.patch"
 if [ -s "$CI_OUT/diff.patch" ]; then
   cargo mutants --in-diff "$CI_OUT/diff.patch" --all-features --output "$CI_OUT"
   code=$?
-  # 0 = tout détecté, 2 = mutants manqués, 3 = timeouts, 4 = base rouge : le verdict vient d'outcomes.json.
+  # 0 = all caught, 2 = missed mutants, 3 = timeouts, 4 = red baseline: the verdict comes from outcomes.json.
   case $code in
   0 | 2 | 3 | 4) ;;
   *)
-    echo "50-st01-mutation : cargo-mutants a échoué (code $code)" >&2
+    echo "50-st01-mutation : cargo-mutants failed (code $code)" >&2
     exit 1
     ;;
   esac
-  # Code 0 sans outcomes.json : le diff ne touche aucune source Rust (« Diff changes no Rust source files »), neutre.
+  # Code 0 without outcomes.json: the diff touches no Rust source ("Diff changes no Rust source files"), neutral.
   if [ $code -ne 0 ] && [ ! -f "$CI_OUT/mutants.out/outcomes.json" ]; then
-    echo "50-st01-mutation : outcomes.json absent (code $code)" >&2
+    echo "50-st01-mutation : outcomes.json missing (code $code)" >&2
     exit 1
   fi
 fi

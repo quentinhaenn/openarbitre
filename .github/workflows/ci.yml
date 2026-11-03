@@ -1,5 +1,5 @@
-# Vérification de chaque PR : un job, qui appelle scripts/ci.sh (archi ST-01 § CI, T-11).
-# Actions épinglées par SHA de commit (dépôt public) ; tag d'origine en commentaire.
+# Verification of every PR: one job, calling scripts/ci.sh (ST-01 design, CI; T-11).
+# Actions pinned by commit SHA (public repository); original tag in the comment.
 name: ci
 on:
   pull_request:
@@ -12,25 +12,25 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      # Toolchain, composants et cible de rust-toolchain.toml.
+      # Toolchain, components and target of rust-toolchain.toml.
       - name: toolchain
         run: rustup toolchain install
-      # full_match exige Python >= 3.13 (Q-2).
+      # full_match requires Python >= 3.13 (Q-2).
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13"
-      - name: versions des outils
-        id: outils
+      - name: tool versions
+        id: tools
         run: |
-          . scripts/outils.env
+          . scripts/tools.env
           echo "tool=cargo-mutants@${CARGO_MUTANTS_VERSION}" >> "$GITHUB_OUTPUT"
       - uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
         with:
-          tool: ${{ steps.outils.outputs.tool }}
-      # gitleaks n'est pas pris en charge par install-action : binaire officiel, somme vérifiée.
+          tool: ${{ steps.tools.outputs.tool }}
+      # gitleaks is not supported by install-action: official binary, checksum verified.
       - name: gitleaks
         run: |
-          . scripts/outils.env
+          . scripts/tools.env
           f="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
           curl -sSfLO "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$f"
           echo "${GITLEAKS_SHA256_LINUX_X64}  $f" | sha256sum -c -

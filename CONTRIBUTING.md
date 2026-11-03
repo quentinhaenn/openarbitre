@@ -1,67 +1,100 @@
-# Contribuer à arbitre
+# Contributing to arbitre
 
-Les règles ci-dessous viennent de ST-01 (`.ctdd/stories/ST-01/`). Les changer est un **amendement du socle**.
+The rules below come from ST-01 (`.ctdd/stories/ST-01/`). Changing them is a **foundation amendment**.
 
-## Branches et PR
+## Branches and PRs
 
-- `main` est protégée : toute modification passe par une PR, `.ctdd/` compris.
-- Une PR est vérifiée par deux checks : `ci` (`scripts/ci.sh`) et `juge` (`scripts/lib/juge.py`).
+- `main` is protected: every change goes through a PR, `.ctdd/` included.
+- A PR is verified by two checks: `ci` (`scripts/ci.sh`) and `judge` (`scripts/lib/judge.py`).
+
+## Language
+
+Everything public in this repository is written in English: code, comments, messages, docs. The ST-01 cycle documents in `.ctdd/` are kept in French as history; they are not translated. The glossary below maps their terms to the names used in the code.
+
+| Spec term (French, `.ctdd/stories/ST-01/`) | Code name |
+|---|---|
+| journal | `Log` |
+| écriture | `Write` (fields `record`, `change`, `stamp`, `seen`, `author`) |
+| donnée / `IdDonnee` | record / `RecordId` (`module`, `category`, `id`) |
+| quoi | `Change` (`Field { name, value }` or `Delete`) |
+| visée | `TargetKind` (`Delete` or `Field(Field)`) |
+| cible | `Target` (`record`, `kind`) |
+| vu | `Seen` (table), field `seen` |
+| marque | `Stamp` `(l, c, a)` |
+| horloge (hybride) | `HybridClock` (`new`, `issue`, `receive`) |
+| horloge épuisée | `ClockExhausted` |
+| horloge simulée | `SimClock` (feature `sim`; `set`, `advance`, `rewind`, `freeze`) |
+| appareil / `IdAppareil` | device / `DeviceId` |
+| auteur | `Author` (`CliUser`, `UiUser`, `Assistant`, `System`) |
+| lot | batch; `BatchError`, `validate` |
+| fusion / fusionner | merge / `Log::merge`, returns a `Report` |
+| écrire (écriture locale) | `Log::write` |
+| projection, état projeté | `Log::projection`, `RecordState`, `Status` (`Present`, `Deleted`) |
+| retenue / gagnante | retained / winner |
+| écartée (version écartée) | discarded (superseded version), `Log::discarded` |
+| conflit | `Conflict` (`retained`, `discarded`), `Log::conflicts` |
+| anomalie | `Anomaly`, `Log::anomalies` |
+| rapport | `Report` (`new_discarded`, `new_conflicts`, `new_anomalies`) |
+| avance, seuil σ | `Lead`, `Threshold`, `leads()`, `DEFAULT_THRESHOLD` |
+| liste navigateur | browser list |
+| juge | judge |
+| rouge / vert | red / green |
 
 ## `Cargo.lock`
 
-En cas de conflit sur `Cargo.lock`, ne jamais le fusionner à la main : reprendre celui de `main` (`git checkout origin/main -- Cargo.lock`), puis `cargo check --workspace` pour le régénérer.
+On a `Cargo.lock` conflict, never merge it by hand: take `main`'s (`git checkout origin/main -- Cargo.lock`), then run `cargo check --workspace` to regenerate it.
 
-## Dépendances
+## Dependencies
 
-- Les dépendances communes et leur déclaration sont dans `docs/decisions/ST-01-dependances.md`. Un composant les reprend par `workspace = true`, sans répéter la version.
-- Une nouvelle dépendance commune, ou la montée de version d'un outil (`scripts/outils.env`, `rust-toolchain.toml`), est un amendement du socle.
+- Shared dependencies and their declaration are in `docs/decisions/ST-01-dependencies.md`. A component inherits them with `workspace = true`, without repeating the version.
+- A new shared dependency, or a tool version bump (`scripts/tools.env`, `rust-toolchain.toml`), is a foundation amendment.
 
-## Vérification : `scripts/ci.sh`
+## Verification: `scripts/ci.sh`
 
-- Point d'entrée unique, en local comme en CI. Il exécute chaque `scripts/ci.d/*.sh`, triés dans l'ordre des octets (`LC_COLLATE=C`). Un contrôle en échec rend le verdict `rouge`.
-- **Ajouter un contrôle** : un fichier `scripts/ci.d/NN-stxx-<sujet>.sh`, avec `NN ≥ 60`. Son code d'aide va dans `scripts/lib/`, jamais dans `ci.d/`. Les fichiers `*-st01-*` et `ci.sh` ne changent pas.
-- Cet ajout passe **par une PR dédiée, avec le label `ci-change`** (écart accepté à AC-6.6, voir le juge).
+- Single entry point, locally and in CI. It runs every `scripts/ci.d/*.sh`, sorted bytewise (`LC_COLLATE=C`). A failing check makes the verdict `red`.
+- **Adding a check**: a file `scripts/ci.d/NN-stxx-<subject>.sh`, with `NN ≥ 60`. Its helper code goes in `scripts/lib/`, never in `ci.d/`. The `*-st01-*` files and `ci.sh` do not change.
+- Such an addition goes through **a dedicated PR with the `ci-change` label** (accepted deviation from AC-6.6, see the judge).
 
-## Le juge (`juge.yml`)
+## The judge (`judge.yml`)
 
-- Il s'exécute sur `pull_request_target`, depuis le code de `main`. Il lit la PR comme des données (`git diff`, `git show`) et n'en exécute rien. **`juge.yml` n'extrait jamais la tête de la PR** dans l'arbre de travail : sinon du code de PR s'exécuterait avec les droits de la base.
-- Il rend `rouge` si la PR :
-  - touche un chemin sous `.github/` ou `scripts/`, ajout, modification ou suppression ;
-  - abaisse la zone effective d'un `.rs` existant (voir « Zones »).
-- Avec le label `ci-change`, ces listes sont seulement affichées, mais la PR ne doit toucher aucun chemin sous `crates/`.
-- **Le label `ci-change` est posé par Quentin seul, jamais par un agent.**
+- It runs on `pull_request_target`, from `main`'s code. It reads the PR as data (`git diff`, `git show`) and executes none of it. **`judge.yml` never checks out the PR head** into the working tree: otherwise PR code would run with the base's privileges.
+- It returns `red` if the PR:
+  - touches a path under `.github/` or `scripts/`, whether added, modified or deleted;
+  - lowers the effective zone of an existing `.rs` file (see "Zones").
+- With the `ci-change` label, these lists are only displayed, but the PR must not touch any path under `crates/`.
+- **The `ci-change` label is set by Quentin alone, never by an agent.**
 
-## Zones : `.ctdd/stories/ST-xx/zones.toml`
+## Zones: `.ctdd/stories/ST-xx/zones.toml`
 
 ```toml
-Full = ["crates/core/src/hlc.rs"]   # seuil de mutation 85 %
-Std  = ["crates/core/src/clock.rs"] # seuil 70 %
-Gen  = ["crates/cli/src/**"]        # score informatif, sans seuil
+Full = ["crates/core/src/hlc.rs"]   # mutation threshold 85%
+Std  = ["crates/core/src/clock.rs"] # threshold 70%
+Gen  = ["crates/cli/src/**"]        # informational score, no threshold
 ```
 
-- Clés de premier niveau : `Full`, `Std`, `Gen`, chacune une liste de motifs. Une autre clé, un autre type ou un TOML illisible ⇒ `rouge`.
-- Motifs relatifs à la racine, sémantique de `PurePosixPath.full_match` (Python ≥ 3.13) : `*` reste dans un segment, `**` couvre zéro ou plusieurs segments.
-- Toutes les déclarations de toutes les stories sont lues. La zone d'un fichier est la plus exigeante qui le couvre (`Full > Std > Gen`) ; un fichier non couvert prend `Full`.
-- Un fichier de `crates/core/` ou `crates/plan/` en `Gen` ⇒ `rouge`.
+- Top-level keys: `Full`, `Std`, `Gen`, each a list of patterns. Any other key, another type or unreadable TOML ⇒ `red`.
+- Patterns are relative to the root, with `PurePosixPath.full_match` semantics (Python ≥ 3.13): `*` stays within a segment, `**` covers zero or more segments.
+- All declarations of all stories are read. A file's zone is the strictest that covers it (`Full > Std > Gen`); an uncovered file gets `Full`.
+- A file of `crates/core/` or `crates/plan/` in `Gen` ⇒ `red`.
 
-## Mutants équivalents : `.ctdd/stories/ST-xx/mutants_equivalents.toml`
+## Equivalent mutants: `.ctdd/stories/ST-xx/mutants_equivalents.toml`
 
 ```toml
 [[equivalent]]
-mutant = "crates/core/src/hlc.rs:42:9: replace < with <= in Horloge::emettre"
-justification = "pourquoi aucun comportement observable ne change"
+mutant = "crates/core/src/hlc.rs:42:9: replace < with <= in HybridClock::issue"
+justification = "why no observable behaviour changes"
 ```
 
-- `mutant` est le nom exact donné par cargo-mutants, copié depuis `mutants.out`. Si le mutant change de ligne, l'entrée ne correspond plus et la CI passe au rouge : on la met à jour.
-- Justification vide ou absente, ou clé inconnue ⇒ `rouge`.
-- **C'est le seul canal d'exclusion.** Sont interdits, et rendent `50-st01-mutation.sh` rouge : l'attribut `mutants::skip` dans `crates/**/*.rs`, tout fichier `mutants.toml` du dépôt (donc `exclude_re` et `exclude_globs`), et `--exclude` hors de la ligne de commande de `50-st01-mutation.sh`.
+- `mutant` is the exact name given by cargo-mutants, copied from `mutants.out`. If the mutant moves to another line, the entry no longer matches and CI goes red: update it.
+- Empty or missing justification, or unknown key ⇒ `red`.
+- **This is the only exclusion channel.** Forbidden, and making `50-st01-mutation.sh` red: the `mutants::skip` attribute in `crates/**/*.rs`, any `mutants.toml` file in the repository (hence `exclude_re` and `exclude_globs`), and `--exclude` outside the command line of `50-st01-mutation.sh`.
 
-## Faux positifs de secrets : `.gitleaksignore`
+## Secret false positives: `.gitleaksignore`
 
-Format natif de gitleaks, une empreinte par ligne, **chacune précédée d'une ligne `# justification`**. Une empreinte sans justification ⇒ `rouge`.
+Native gitleaks format, one fingerprint per line, **each preceded by a `# justification` line**. A fingerprint without justification ⇒ `red`.
 
-## Moteur de fusion (`arbitre-core`)
+## Merge engine (`arbitre-core`)
 
-- `arbitre-core` est `#![no_std]` + `alloc` : ni heure système, ni E/S.
-- Une écriture locale passe **uniquement** par `Journal::ecrire`, qui calcule `vu` et date l'écriture. `Journal::fusionner` est réservé aux lots reçus.
-- **Contrat de désérialisation (ST-02 et suivantes)** : l'aller-retour d'une `Ecriture` est exact, `vu` compris. Sinon une copie réémise est une identité à deux contenus, donc une anomalie.
+- `arbitre-core` is `#![no_std]` + `alloc`: no system time, no I/O.
+- A local write goes **only** through `Log::write`, which computes `seen` and stamps the write. `Log::merge` is reserved for received batches.
+- **Deserialization contract (ST-02 onwards)**: the round trip of a `Write` is exact, `seen` included. Otherwise a re-emitted copy is an identity with two contents, hence an anomaly.

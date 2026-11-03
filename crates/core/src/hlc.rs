@@ -1,104 +1,102 @@
-//! Marques, horloge logique hybride, avances (archi ST-01 § Types du cœur, A-11 ; T-3).
+//! Stamps, hybrid logical clock, leads (ST-01 design, core types, A-11; T-3).
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use core::num::NonZeroU64;
 
-use crate::write::Ecriture;
+use crate::write::Write;
 
-/// Borne exclusive de `Marque::l` (A-11).
+/// Exclusive upper bound of `Stamp::l` (A-11).
 pub const L_MAX: u64 = 1 << 53;
 
-/// Identifiant d'appareil, ordonné octet par octet.
+/// Device identifier, ordered byte by byte.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct IdAppareil(pub [u8; 16]);
+pub struct DeviceId(pub [u8; 16]);
 
-impl IdAppareil {
-    /// Construit l'identifiant depuis un entier ; l'ordre des entiers est conservé.
-    pub fn depuis_u128(n: u128) -> Self {
+impl DeviceId {
+    /// Builds the identifier from an integer; integer order is preserved.
+    pub fn from_u128(n: u128) -> Self {
         Self(n.to_be_bytes())
     }
 }
 
-/// Marque `(l, c, a)`. L'ordre des champs est contractuel : `Ord` lexicographique (RG-ST01-4.1, A-4).
+/// Stamp `(l, c, a)`. Field order is contractual: lexicographic `Ord` (RG-ST01-4.1, A-4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Marque {
+pub struct Stamp {
     pub l: u64,
     pub c: u32,
-    pub a: IdAppareil,
+    pub a: DeviceId,
 }
 
-/// Plus de marque émissible : `c` saturé ou `l' ≥ L_MAX` (MANQUE-ST01-3, A-11).
+/// No stamp can be issued any more: `c` saturated or `l' ≥ L_MAX` (MANQUE-ST01-3, A-11).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct HorlogeEpuisee;
+pub struct ClockExhausted;
 
-/// État `(l, c)` de l'horloge d'un appareil.
+/// State `(l, c)` of a device's clock.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Horloge {
+pub struct HybridClock {
     l: u64,
     c: u32,
-    a: IdAppareil,
+    a: DeviceId,
 }
 
-impl Horloge {
-    /// Horloge de l'appareil `a`, état `(0, 0)`.
-    pub fn nouvelle(a: IdAppareil) -> Self {
+impl HybridClock {
+    /// Clock of device `a`, state `(0, 0)`.
+    pub fn new(a: DeviceId) -> Self {
         Self { l: 0, c: 0, a }
     }
 
-    /// Émet une marque (RG-ST01-4.2) : `l' = max(l, pt)`, `c' = c + 1` si `l' = l`, sinon 0.
+    /// Issues a stamp (RG-ST01-4.2): `l' = max(l, pt)`, `c' = c + 1` if `l' = l`, else 0.
     ///
-    /// Post : marque > tout ce qui a été émis ou reçu ; `l' ≥ pt` (INV-ST01-5).
-    /// Erreur : `c` saturé ou `l' ≥ L_MAX` ⇒ `HorlogeEpuisee`, état inchangé (A-11).
-    pub fn emettre(&mut self, pt: u64) -> Result<Marque, HorlogeEpuisee> {
+    /// Post: stamp > everything issued or received; `l' ≥ pt` (INV-ST01-5).
+    /// Error: `c` saturated or `l' ≥ L_MAX` ⇒ `ClockExhausted`, state unchanged (A-11).
+    pub fn issue(&mut self, pt: u64) -> Result<Stamp, ClockExhausted> {
         let l = self.l.max(pt);
         let c = if l == self.l {
-            self.c.checked_add(1).ok_or(HorlogeEpuisee)?
+            self.c.checked_add(1).ok_or(ClockExhausted)?
         } else {
             0
         };
         if l >= L_MAX {
-            return Err(HorlogeEpuisee);
+            return Err(ClockExhausted);
         }
         (self.l, self.c) = (l, c);
-        Ok(Marque { l, c, a: self.a })
+        Ok(Stamp { l, c, a: self.a })
     }
 
-    /// Adopte `max_lex((l, c), (m.l, m.c))` (RG-ST01-4.3). Post : toute émission suivante > `m` (INV-ST01-6).
-    pub fn recevoir(&mut self, m: &Marque) {
+    /// Adopts `max_lex((l, c), (m.l, m.c))` (RG-ST01-4.3). Post: every later issue > `m` (INV-ST01-6).
+    pub fn receive(&mut self, m: &Stamp) {
         (self.l, self.c) = (self.l, self.c).max((m.l, m.c));
     }
 }
 
-/// Seuil d'avance `σ` en ms ; `σ = 0` n'est pas représentable (RG-ST01-4.6).
+/// Lead threshold `σ` in ms; `σ = 0` is not representable (RG-ST01-4.6).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Seuil(pub NonZeroU64);
+pub struct Threshold(pub NonZeroU64);
 
 /// 60 min (RG-ST01-4.6).
-pub const SEUIL_DEFAUT: Seuil = Seuil(NonZeroU64::new(3_600_000).unwrap());
+pub const DEFAULT_THRESHOLD: Threshold = Threshold(NonZeroU64::new(3_600_000).unwrap());
 
-/// Avance maximale d'un appareil dans un lot.
+/// Largest lead of a device within a batch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Avance {
-    pub appareil: IdAppareil,
-    pub avance_ms: u64,
+pub struct Lead {
+    pub device: DeviceId,
+    pub lead_ms: u64,
 }
 
-/// Appareils dont une écriture du lot dépasse `maintenant` de plus de `seuil` (RG-ST01-4.6).
+/// Devices with a write in the batch more than `threshold` ahead of `now_ms` (RG-ST01-4.6).
 ///
-/// Post : une entrée par appareil, avance maximale du lot, triée par appareil ;
-/// avance égale au seuil non signalée (INV-ST01-8). Pure.
-pub fn avances(lot: &[Ecriture], maintenant: u64, seuil: Seuil) -> Vec<Avance> {
-    let mut max: BTreeMap<IdAppareil, u64> = BTreeMap::new();
-    for w in lot {
-        let avance = max.entry(w.appareil()).or_default();
-        *avance = (*avance).max(w.marque.l.saturating_sub(maintenant));
+/// Post: one entry per device, the batch's largest lead, sorted by device;
+/// a lead equal to the threshold is not reported (INV-ST01-8). Pure.
+pub fn leads(batch: &[Write], now_ms: u64, threshold: Threshold) -> Vec<Lead> {
+    let mut max_lead: BTreeMap<DeviceId, u64> = BTreeMap::new();
+    for w in batch {
+        let lead = max_lead.entry(w.device()).or_default();
+        *lead = (*lead).max(w.stamp.l.saturating_sub(now_ms));
     }
-    max.into_iter()
-        .filter(|&(_, avance_ms)| avance_ms > seuil.0.get())
-        .map(|(appareil, avance_ms)| Avance {
-            appareil,
-            avance_ms,
-        })
+    max_lead
+        .into_iter()
+        .filter(|&(_, lead_ms)| lead_ms > threshold.0.get())
+        .map(|(device, lead_ms)| Lead { device, lead_ms })
         .collect()
 }

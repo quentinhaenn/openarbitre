@@ -7,11 +7,11 @@
   {
    "scenario": {
     "Mutant": {
-     "name": "src/lib.rs:2:32: replace borne -> bool with true",
+     "name": "src/lib.rs:2:32: replace bound -> bool with true",
      "package": "mini",
      "file": "src/lib.rs",
      "function": {
-      "function_name": "borne",
+      "function_name": "bound",
       "return_type": "-> bool",
       "span": {
        "start": {
@@ -43,11 +43,11 @@
   {
    "scenario": {
     "Mutant": {
-     "name": "src/lib.rs:2:34: replace < with <= in borne",
+     "name": "src/lib.rs:2:34: replace < with <= in bound",
      "package": "mini",
      "file": "src/lib.rs",
      "function": {
-      "function_name": "borne",
+      "function_name": "bound",
       "return_type": "-> bool",
       "span": {
        "start": {
@@ -151,11 +151,11 @@
   {
    "scenario": {
     "Mutant": {
-     "name": "src/lib.rs:2:53: replace += with *= in boucle",
+     "name": "src/lib.rs:2:53: replace += with *= in spin",
      "package": "mini2",
      "file": "src/lib.rs",
      "function": {
-      "function_name": "boucle",
+      "function_name": "spin",
       "return_type": "-> u32",
       "span": {
        "start": {

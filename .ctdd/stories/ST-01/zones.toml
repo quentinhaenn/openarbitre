@@ -1,4 +1,4 @@
-# Zones de ST-01 : format dans CONTRIBUTING.md. Un fichier non listé prend Full.
+# ST-01 zones: format in CONTRIBUTING.md. A file not listed gets Full.
 Full = [
   "crates/core/src/hlc.rs",
   "crates/core/src/write.rs",
