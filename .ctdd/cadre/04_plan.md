@@ -226,7 +226,8 @@ Chaque spike rend un verdict écrit dans `.ctdd/spikes/Sn.md` et ne laisse aucun
   - **test de conformité générique** : activation, invisibilité, espace de noms, parité, et **toute action `requiert_réseau = aucun` réussit réseau coupé** (PROP-1) ; **toute action déclarée réseau, réseau coupé, rend une issue explicite (code de la table de ST-03 ou mode dégradé nommé), sans blocage ni panique** (F-37) ;
   - **registre des surfaces** (F-27) : la parité itère sur `tests/support/surfaces/`, un fichier par surface et une ligne d'enregistrement par surface. ST-04 y pose `cli.rs`. Une surface nouvelle (MCP, GUI) s'ajoute sans modifier le test générique ;
   - **signaux à l'ouverture** (F-27) : un espace de noms `arbitre.signaux` où une tâche de fond dépose un signal daté ; `main.rs` affiche les signaux non lus au début de toute commande, puis les marque lus. ST-11 et ST-19 s'en servent sans toucher `main.rs` ;
-  - assertion PROP-2 : aucune sortie hors des destinations déclarées.
+  - assertion PROP-2 : aucune sortie hors des destinations déclarées ;
+  - **`Clock::fuseau()`** (arbitrage P-2 de l'archi ST-01, 2026-11-03) : `jiff` avec la base des fuseaux embarquée, wasm compris ; adaptateur natif dans la CLI, simulateur commandable.
 - **Critère de complétion** :
   - un module désactivé est absent de l'aide et de la complétion ; son appel explicite ⇒ code « module non activé », état inchangé ;
   - une lecture hors espace de noms est impossible ;
