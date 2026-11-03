@@ -183,12 +183,7 @@ impl Journal {
     pub fn fusionner(&mut self, lot: &[Ecriture]) -> Result<Rapport, ErreurLot> {
         valider(lot)?;
         // ponytail: recalcul par donnée touchée, quadratique sur un flux d'écritures isolées — voir ST-19
-        let touchees: Vec<&IdDonnee> = lot
-            .iter()
-            .map(|w| &w.donnee)
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect();
+        let touchees: BTreeSet<&IdDonnee> = lot.iter().map(|w| &w.donnee).collect();
         let avant: Vec<_> = touchees.iter().map(|d| self.sorties(d)).collect();
         for w in lot {
             self.inserer(w);

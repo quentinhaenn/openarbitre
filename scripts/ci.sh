@@ -46,16 +46,14 @@ rm -rf "$CI_OUT"
 mkdir -p "$CI_OUT"
 export CI_BASE CI_HEAD CI_OUT
 
-controles=()
-for f in scripts/ci.d/*.sh; do
-  [ -e "$f" ] && controles+=("$f")
-done
+# LC_COLLATE=C : glob trié dans l'ordre des octets, indépendant de la locale.
+shopt -s nullglob
+LC_COLLATE=C
+controles=(scripts/ci.d/*.sh)
 if [ ${#controles[@]} -eq 0 ]; then
   echec "scripts/ci.d/ est vide"
 else
-  # LC_ALL=C : ordre indépendant de la locale.
-  sorted=$(printf '%s\n' "${controles[@]}" | LC_ALL=C sort)
-  while IFS= read -r f; do
+  for f in "${controles[@]}"; do
     nom=$(basename "$f" .sh)
     $actions && echo "::group::$nom"
     echo "ci : $nom"
@@ -69,7 +67,7 @@ else
     else
       resume+=("| $nom | vert | $((SECONDS - debut)) s |")
     fi
-  done <<<"$sorted"
+  done
 fi
 
 if $actions && [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then

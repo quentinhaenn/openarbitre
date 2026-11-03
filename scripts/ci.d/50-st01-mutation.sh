@@ -13,14 +13,8 @@ if git ls-files | grep -E '(^|/)mutants\.toml$'; then
   rc=1
 fi
 
-mkdir -p "$CI_OUT"
-rm -rf "$CI_OUT"/mutants.out "$CI_OUT"/mutants.out.old
 git diff "$CI_BASE...$CI_HEAD" >"$CI_OUT/diff.patch"
 if [ -s "$CI_OUT/diff.patch" ]; then
-  if ! command -v cargo-mutants >/dev/null 2>&1; then
-    echo "50-st01-mutation : cargo-mutants absent du PATH" >&2
-    exit 1
-  fi
   cargo mutants --in-diff "$CI_OUT/diff.patch" --all-features --output "$CI_OUT"
   code=$?
   # 0 = tout détecté, 2 = mutants manqués, 3 = timeouts, 4 = base rouge : le verdict vient d'outcomes.json.

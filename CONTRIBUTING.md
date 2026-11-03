@@ -18,7 +18,7 @@ En cas de conflit sur `Cargo.lock`, ne jamais le fusionner à la main : reprendr
 
 ## Vérification : `scripts/ci.sh`
 
-- Point d'entrée unique, en local comme en CI. Il exécute chaque `scripts/ci.d/*.sh`, triés avec `LC_ALL=C`. Un contrôle en échec rend le verdict `rouge`.
+- Point d'entrée unique, en local comme en CI. Il exécute chaque `scripts/ci.d/*.sh`, triés dans l'ordre des octets (`LC_COLLATE=C`). Un contrôle en échec rend le verdict `rouge`.
 - **Ajouter un contrôle** : un fichier `scripts/ci.d/NN-stxx-<sujet>.sh`, avec `NN ≥ 60`. Son code d'aide va dans `scripts/lib/`, jamais dans `ci.d/`. Les fichiers `*-st01-*` et `ci.sh` ne changent pas.
 - Cet ajout passe **par une PR dédiée, avec le label `ci-change`** (écart accepté à AC-6.6, voir le juge).
 

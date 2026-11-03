@@ -7,7 +7,7 @@ pub trait Clock {
 
 /// Source d'heure commandable, une par appareil simulé (PROP-ST01-1).
 ///
-/// Contrat (à confirmer, voir `06_skeleton.md`) : `now()` rend la dernière heure posée ;
+/// Contrat (`06_skeleton.md`) : `now()` rend la dernière heure posée ;
 /// après `figer()`, `avancer` et `reculer` sont sans effet jusqu'au prochain `fixer`.
 #[cfg(feature = "sim")]
 #[derive(Debug, Default)]

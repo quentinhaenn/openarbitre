@@ -11,7 +11,6 @@ from mutation import ZONES, Rouge, lire_zones, zone_de
 
 PROTEGES = (".github/", "scripts/")
 LABEL = "ci-change"
-ZONES_TOML = ".ctdd/stories/*/zones.toml"
 
 
 def juger(
