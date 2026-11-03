@@ -23,10 +23,18 @@ jobs:
         id: outils
         run: |
           . scripts/outils.env
-          echo "tool=cargo-mutants@${CARGO_MUTANTS_VERSION},gitleaks@${GITLEAKS_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tool=cargo-mutants@${CARGO_MUTANTS_VERSION}" >> "$GITHUB_OUTPUT"
       - uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
         with:
           tool: ${{ steps.outils.outputs.tool }}
+      # gitleaks n'est pas pris en charge par install-action : binaire officiel, somme vérifiée.
+      - name: gitleaks
+        run: |
+          . scripts/outils.env
+          f="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfLO "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$f"
+          echo "${GITLEAKS_SHA256_LINUX_X64}  $f" | sha256sum -c -
+          tar -xzf "$f" -C "$HOME/.cargo/bin" gitleaks
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
