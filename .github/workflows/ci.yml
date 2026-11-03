@@ -1,0 +1,25 @@
+# Vérification de chaque PR : un job, qui appelle scripts/ci.sh (archi ST-01 § CI, T-11).
+# Actions épinglées par SHA de commit (dépôt public) : SHA à poser en T-11.
+name: ci
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@SHA_A_EPINGLER_T11
+        with:
+          fetch-depth: 0
+      # T-11 : toolchain de rust-toolchain.toml, setup-python 3.13, cargo-mutants et gitleaks
+      # précompilés aux versions de scripts/outils.env, cache Cargo.
+      - name: scripts/ci.sh
+        run: scripts/ci.sh
+        env:
+          CI_BASE: ${{ github.event.pull_request.base.sha }}
+      - uses: actions/upload-artifact@SHA_A_EPINGLER_T11
+        if: always()
+        with:
+          name: ci
+          path: target/ci/

@@ -3,7 +3,7 @@
   "started_at": "2026-11-02T23:39:59+00:00",
   "source": ".ctdd/cadre/04_plan.md § ST-01",
   "mesure": "Temps machine et arbitrage relevés a posteriori dans les transcriptions Claude Code (~/.claude/projects/), fenêtre started_at → closed_at.",
-  "current_phase": 6,
+  "current_phase": 7,
   "phases": {
     "1_story": {
       "status": "done",
@@ -27,11 +27,11 @@
       "iteration": 2
     },
     "6_skeleton": {
-      "status": "in_progress",
-      "file": null
+      "status": "done",
+      "file": ".ctdd/stories/ST-01/06_skeleton.md"
     },
     "7_implementation": {
-      "status": "pending",
+      "status": "in_progress",
       "file": null
     },
     "8_review": {

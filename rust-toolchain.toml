@@ -1,0 +1,5 @@
+# Toolchain épinglée : voir docs/decisions/ST-01-dependances.md.
+[toolchain]
+channel = "1.99.1"
+components = ["clippy", "rustfmt"]
+targets = ["wasm32-unknown-unknown"]

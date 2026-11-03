@@ -1,0 +1,30 @@
+# Juge : exécute le code de main seulement, lit la PR comme données (A-8, T-11).
+# Ne jamais extraire la tête de la PR : pull_request_target (R-11)
+name: juge
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+permissions:
+  contents: read
+jobs:
+  juge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@SHA_A_EPINGLER_T11
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # full_match exige Python ≥ 3.13 (Q-2).
+      - uses: actions/setup-python@SHA_A_EPINGLER_T11
+        with:
+          python-version: "3.13"
+      - name: tête de la PR dans la base d'objets seulement
+        run: git fetch origin "refs/pull/$NUMERO/head"
+        env:
+          NUMERO: ${{ github.event.pull_request.number }}
+      - name: scripts/lib/juge.py
+        run: python3 scripts/lib/juge.py "$BASE" "$HEAD"
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          CI_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
