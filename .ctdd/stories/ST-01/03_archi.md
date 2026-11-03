@@ -408,3 +408,5 @@ Elles sont déclarées dans `[workspace.dependencies]` (AC-8.3), même inutilis�
 - **P-2 → ST-04.** `Clock::fuseau()` (avec `jiff` et la base des fuseaux embarquée) est ajouté en ST-04, qui construit le contexte de module portant `clock`, avant la séparation des voies P et M. Noté dans `.ctdd/cadre/04_plan.md` § ST-04.
 - **P-3 → E-1, E-2, E-3 acceptés.** `graphe.py` reste en Python (stdlib seule) ; `outils.env` déclare Python ≥ 3.11 et `ci.sh` le vérifie avec un message explicite (le `python3` d'Xcode est en 3.9, sans `tomllib`).
 - **Amendé par le plan (Q-2) :** minimum Python porté à 3.13 pour `full_match`.
+- **DA itération 1, F-1 → `vu : BTreeMap<Cible, Marque>`** (voir l'arbitrage F-1 de `02_specs.md`), en remplacement de `vu : Option<Marque>` ; `vu_pour` rend cette table. `vu < marque` s'applique à chaque entrée.
+- **Passe de simplification (2026-11-03).** Avant la review (phase 8), une passe `/simplify` ou `/ponytail-review` sur le diff de la story retire ce qui n'est pas nécessaire. Pour toutes les stories.
