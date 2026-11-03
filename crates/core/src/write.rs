@@ -6,7 +6,7 @@ use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::hlc::{IdAppareil, Marque};
+use crate::hlc::{IdAppareil, L_MAX, Marque};
 
 /// Identifiant d'une donnée. Ordre contractuel `(module, genre, id)`, octets UTF-8 (A-4).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -70,12 +70,19 @@ pub struct Ecriture {
 impl Ecriture {
     /// `(donnee, Champ(nom))` ou `(donnee, Suppression)`.
     pub fn cible(&self) -> Cible {
-        todo!("T-4: Ecriture::cible — A-1")
+        let visee = match &self.quoi {
+            Quoi::Champ { nom, .. } => Visee::Champ(nom.clone()),
+            Quoi::Suppression => Visee::Suppression,
+        };
+        Cible {
+            donnee: self.donnee.clone(),
+            visee,
+        }
     }
 
     /// Appareil auteur, `= marque.a` par construction (RG-ST01-4.5).
     pub fn appareil(&self) -> IdAppareil {
-        todo!("T-4: Ecriture::appareil — RG-ST01-4.5")
+        self.marque.a
     }
 }
 
@@ -103,6 +110,26 @@ pub struct ErreurLot {
 /// et chaque entrée de `vu` `< marque`. Sinon la première fautive.
 /// Les entrées de `vu` en trop ne sont pas refusées (A-1).
 pub fn valider(lot: &[Ecriture]) -> Result<(), ErreurLot> {
-    let _ = lot;
-    todo!("T-4: valider — RG-ST01-4.5, E-2, A-11")
+    for (index, w) in lot.iter().enumerate() {
+        let raison = if !identifiants_pleins(&w.donnee, &w.quoi) {
+            Raison::IdentifiantVide
+        } else if w.marque.l >= L_MAX {
+            Raison::MarqueHorsBornes
+        } else if w.vu.values().any(|m| *m >= w.marque) {
+            Raison::VuNonAnterieur
+        } else {
+            continue;
+        };
+        return Err(ErreurLot { index, raison });
+    }
+    Ok(())
+}
+
+/// Module, genre, id et nom de champ non vides.
+pub(crate) fn identifiants_pleins(donnee: &IdDonnee, quoi: &Quoi) -> bool {
+    let nom_plein = match quoi {
+        Quoi::Champ { nom, .. } => !nom.0.is_empty(),
+        Quoi::Suppression => true,
+    };
+    nom_plein && !donnee.module.is_empty() && !donnee.genre.is_empty() && !donnee.id.is_empty()
 }

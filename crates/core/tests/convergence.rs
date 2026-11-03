@@ -33,13 +33,20 @@ fn s_et_masque() -> impl Strategy<Value = (Vec<Ecriture>, Vec<bool>, Vec<bool>)>
         sim.tout_livrer();
         let s = sim.appareils[0].journal.ecritures();
         let n = s.len();
-        (Just(s), prop::collection::vec(any::<bool>(), n), prop::collection::vec(any::<bool>(), n))
+        (
+            Just(s),
+            prop::collection::vec(any::<bool>(), n),
+            prop::collection::vec(any::<bool>(), n),
+        )
     })
 }
 
 fn partager(s: &[Ecriture], masque: &[bool]) -> (Vec<Ecriture>, Vec<Ecriture>) {
     let (a, b): (Vec<_>, Vec<_>) = s.iter().cloned().zip(masque).partition(|(_, m)| **m);
-    (a.into_iter().map(|(w, _)| w).collect(), b.into_iter().map(|(w, _)| w).collect())
+    (
+        a.into_iter().map(|(w, _)| w).collect(),
+        b.into_iter().map(|(w, _)| w).collect(),
+    )
 }
 
 proptest! {

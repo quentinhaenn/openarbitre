@@ -20,7 +20,9 @@ fn j(n: u128) -> Journal {
 }
 
 fn ecr(journal: &mut Journal, pt: u64, d: &str, quoi: Quoi) -> Ecriture {
-    journal.ecrire(pt, donnee(d), quoi, Auteur::UtilisateurCli).unwrap()
+    journal
+        .ecrire(pt, donnee(d), quoi, Auteur::UtilisateurCli)
+        .unwrap()
 }
 
 fn recu(lot: &[Ecriture]) -> Journal {
@@ -30,7 +32,9 @@ fn recu(lot: &[Ecriture]) -> Journal {
 }
 
 fn valeur_de(x: &Journal, d: &str, f: &str) -> Quoi {
-    x.projection()[&donnee(d)].champs[&Champ(f.into())].quoi.clone()
+    x.projection()[&donnee(d)].champs[&Champ(f.into())]
+        .quoi
+        .clone()
 }
 
 fn statut(x: &Journal, d: &str) -> Statut {
@@ -38,7 +42,12 @@ fn statut(x: &Journal, d: &str) -> Statut {
 }
 
 fn conflit(retenue: &Ecriture, ecartee: &Ecriture, f: &str) -> Conflit {
-    Conflit { donnee: retenue.donnee.clone(), champ: Champ(f.into()), retenue: retenue.clone(), ecartee: ecartee.clone() }
+    Conflit {
+        donnee: retenue.donnee.clone(),
+        champ: Champ(f.into()),
+        retenue: retenue.clone(),
+        ecartee: ecartee.clone(),
+    }
 }
 
 fn r_de(x: &Journal) -> (Projection, Vec<Ecriture>, Vec<Conflit>) {
@@ -101,8 +110,8 @@ fn us1_cas8_dix_mille_ecritures_sequentielles() {
 fn us1_cas10_collision_d_identite() {
     let w1 = ecriture(donnee("d"), champ("f", "v1"), marque(10, 0, A));
     let w2 = ecriture(donnee("d"), champ("f", "v2"), marque(10, 0, A));
-    let mut x = recu(&[w1.clone()]);
-    let rapport = x.fusionner(&[w2.clone()]).unwrap();
+    let mut x = recu(std::slice::from_ref(&w1));
+    let rapport = x.fusionner(std::slice::from_ref(&w2)).unwrap();
     assert_eq!(x.ecritures(), vec![w1.clone(), w2.clone()]);
     assert_eq!(valeur_de(&x, "d", "f"), champ("f", "v2"));
     assert_eq!(x.ecartees(), vec![w1.clone()]);
@@ -120,7 +129,13 @@ fn us1_cas11_lot_mal_forme_refuse_en_entier() {
     let avant = x.clone();
     let bonne = ecr(&mut j(B), 20, "d", champ("f", "v2"));
     let mauvaise = ecriture(donnee("d"), champ("", "v3"), marque(21, 0, B));
-    assert_eq!(x.fusionner(&[bonne, mauvaise]), Err(ErreurLot { index: 1, raison: Raison::IdentifiantVide }));
+    assert_eq!(
+        x.fusionner(&[bonne, mauvaise]),
+        Err(ErreurLot {
+            index: 1,
+            raison: Raison::IdentifiantVide
+        })
+    );
     assert_eq!(x, avant);
 }
 
@@ -157,7 +172,7 @@ fn us3_cas3_suppression_sequentielle() {
 #[test]
 fn us3_cas4_resurrection_sequentielle() {
     let s = ecr(&mut j(A), 10, "d", Quoi::Suppression);
-    let mut b = recu(&[s.clone()]);
+    let mut b = recu(std::slice::from_ref(&s));
     ecr(&mut b, 11, "d", champ("f", "v"));
     assert_eq!(statut(&b, "d"), Statut::Presente);
     assert_eq!(b.ecartees(), vec![s]);
@@ -197,14 +212,17 @@ fn us3_cas7_resurrection_tous_champs() {
 #[test]
 fn us3_cas9_suppression_seule() {
     let s = ecr(&mut j(A), 10, "d", Quoi::Suppression);
-    let x = recu(&[s.clone()]);
+    let x = recu(std::slice::from_ref(&s));
     assert_eq!(statut(&x, "d"), Statut::Supprimee(s));
     assert!(x.projection()[&donnee("d")].champs.is_empty());
 }
 
 #[test]
 fn us2_cas9_ecartee_complete() {
-    let wa = Ecriture { auteur: Auteur::Assistant, ..ecr(&mut j(A), 10, "d", champ("f", "v1")) };
+    let wa = Ecriture {
+        auteur: Auteur::Assistant,
+        ..ecr(&mut j(A), 10, "d", champ("f", "v1"))
+    };
     let wb = ecr(&mut j(B), 12, "d", champ("f", "v2"));
     let ecartee = &recu(&[wa.clone(), wb]).ecartees()[0];
     assert_eq!(ecartee, &wa);
@@ -222,8 +240,14 @@ fn ecrire_calcule_vu_par_visee() {
     let w4 = ecr(&mut a, 4, "d", champ("f1", "c"));
     assert!(w1.vu.is_empty());
     assert!(w2.vu.is_empty());
-    assert_eq!(s.vu, Vu::from([(visee("f1"), w1.marque), (visee("f2"), w2.marque)]));
-    assert_eq!(w4.vu, Vu::from([(Visee::Suppression, s.marque), (visee("f1"), w1.marque)]));
+    assert_eq!(
+        s.vu,
+        Vu::from([(visee("f1"), w1.marque), (visee("f2"), w2.marque)])
+    );
+    assert_eq!(
+        w4.vu,
+        Vu::from([(Visee::Suppression, s.marque), (visee("f1"), w1.marque)])
+    );
 }
 
 #[test]
@@ -237,21 +261,35 @@ fn ecrire_ignore_les_autres_donnees() {
 #[test]
 fn ecrire_identifiant_vide_ne_consomme_pas_de_marque() {
     let mut a = j(A);
-    assert_eq!(ecr(&mut a, 10, "d", champ("f", "a")).marque, marque(10, 0, A));
+    assert_eq!(
+        ecr(&mut a, 10, "d", champ("f", "a")).marque,
+        marque(10, 0, A)
+    );
     let avant = a.clone();
     assert_eq!(
         a.ecrire(10, donnee(""), champ("f", "b"), Auteur::Systeme),
         Err(ErreurEcriture::Invalide(Raison::IdentifiantVide))
     );
     assert_eq!(a, avant);
-    assert_eq!(ecr(&mut a, 10, "d", champ("f", "c")).marque, marque(10, 1, A));
+    assert_eq!(
+        ecr(&mut a, 10, "d", champ("f", "c")).marque,
+        marque(10, 1, A)
+    );
 }
 
 #[test]
 fn ecrire_horloge_epuisee() {
     let mut a = j(A);
-    a.fusionner(&[ecriture(donnee("d"), champ("f", "v"), marque(10, u32::MAX, B))]).unwrap();
-    assert_eq!(a.ecrire(10, donnee("d"), champ("f", "w"), Auteur::Systeme), Err(ErreurEcriture::HorlogeEpuisee));
+    a.fusionner(&[ecriture(
+        donnee("d"),
+        champ("f", "v"),
+        marque(10, u32::MAX, B),
+    )])
+    .unwrap();
+    assert_eq!(
+        a.ecrire(10, donnee("d"), champ("f", "w"), Auteur::Systeme),
+        Err(ErreurEcriture::HorlogeEpuisee)
+    );
 }
 
 #[test]
@@ -263,9 +301,18 @@ fn fusionner_lot_invalide_journal_et_horloge_inchanges() {
         ecriture(donnee("d"), champ("f", "b"), marque(1_000, 0, B)),
         ecriture(donnee("d"), champ("f", "c"), marque(L_MAX, 0, B)),
     ];
-    assert_eq!(a.fusionner(&lot), Err(ErreurLot { index: 1, raison: Raison::MarqueHorsBornes }));
+    assert_eq!(
+        a.fusionner(&lot),
+        Err(ErreurLot {
+            index: 1,
+            raison: Raison::MarqueHorsBornes
+        })
+    );
     assert_eq!(a, avant);
-    assert_eq!(ecr(&mut a, 10, "d", champ("f", "d")).marque, marque(10, 1, A));
+    assert_eq!(
+        ecr(&mut a, 10, "d", champ("f", "d")).marque,
+        marque(10, 1, A)
+    );
 }
 
 #[test]
@@ -295,7 +342,7 @@ fn us2_cas1_meme_champ_hors_ligne_des_deux_cotes() {
 #[test]
 fn us2_cas2_ecrasement_sequentiel() {
     let wa = ecr(&mut j(A), 10, "d", champ("f", "v1"));
-    let mut b = recu(&[wa.clone()]);
+    let mut b = recu(std::slice::from_ref(&wa));
     let wb = ecr(&mut b, 11, "d", champ("f", "v2"));
     assert!(b.conflits().is_empty());
     assert!(recu(&[wb, wa]).conflits().is_empty());
@@ -333,7 +380,14 @@ fn us2_cas6_trois_concurrentes_un_conflit_par_paire() {
     let x = recu(&[wc.clone(), wa.clone(), wb.clone()]);
     assert_eq!(valeur_de(&x, "d", "f"), champ("f", "v3"));
     assert_eq!(x.ecartees(), vec![wa.clone(), wb.clone()]);
-    assert_eq!(x.conflits(), vec![conflit(&wb, &wa, "f"), conflit(&wc, &wa, "f"), conflit(&wc, &wb, "f")]);
+    assert_eq!(
+        x.conflits(),
+        vec![
+            conflit(&wb, &wa, "f"),
+            conflit(&wc, &wa, "f"),
+            conflit(&wc, &wb, "f")
+        ]
+    );
 }
 
 #[test]
@@ -341,7 +395,7 @@ fn us2_cas7_pair_jamais_synchronise() {
     let wp = ecr(&mut j(B), 10, "d", champ("f", "v1"));
     let mut local = j(A);
     let wl = ecr(&mut local, 20, "d", champ("f", "v2"));
-    let rapport = local.fusionner(&[wp.clone()]).unwrap();
+    let rapport = local.fusionner(std::slice::from_ref(&wp)).unwrap();
     assert_eq!(rapport.nouveaux_conflits, vec![conflit(&wl, &wp, "f")]);
 }
 
@@ -377,14 +431,20 @@ fn us2_cas10_ecriture_sequentielle_apres_conflit() {
 fn us3_cas1_conflit_retenue_champ() {
     let s = ecr(&mut j(A), 10, "d", Quoi::Suppression);
     let w = ecr(&mut j(B), 12, "d", champ("f", "v"));
-    assert_eq!(recu(&[s.clone(), w.clone()]).conflits(), vec![conflit(&w, &s, "f")]);
+    assert_eq!(
+        recu(&[s.clone(), w.clone()]).conflits(),
+        vec![conflit(&w, &s, "f")]
+    );
 }
 
 #[test]
 fn us3_cas2_conflit_retenue_suppression() {
     let w = ecr(&mut j(A), 10, "d", champ("f", "v"));
     let s = ecr(&mut j(B), 12, "d", Quoi::Suppression);
-    assert_eq!(recu(&[w.clone(), s.clone()]).conflits(), vec![conflit(&s, &w, "f")]);
+    assert_eq!(
+        recu(&[w.clone(), s.clone()]).conflits(),
+        vec![conflit(&s, &w, "f")]
+    );
 }
 
 #[test]
@@ -403,7 +463,10 @@ fn us3_cas3_et_4_sequentiels_sans_conflit() {
 fn us3_cas5_meme_l_c_suppression_contre_champ_en_conflit() {
     let s = ecr(&mut j(A), 10, "d", Quoi::Suppression);
     let w = ecr(&mut j(B), 10, "d", champ("f", "v"));
-    assert_eq!(recu(&[s.clone(), w.clone()]).conflits(), vec![conflit(&w, &s, "f")]);
+    assert_eq!(
+        recu(&[s.clone(), w.clone()]).conflits(),
+        vec![conflit(&w, &s, "f")]
+    );
 }
 
 #[test]
@@ -419,7 +482,10 @@ fn contre_exemple_f1() {
     let mut a = j(A);
     let echeance = ecr(&mut a, 11, "d", champ("echeance", "e"));
     let s = ecr(&mut a, 12, "d", Quoi::Suppression);
-    assert_eq!(recu(&[titre.clone(), echeance, s.clone()]).conflits(), vec![conflit(&s, &titre, "titre")]);
+    assert_eq!(
+        recu(&[titre.clone(), echeance, s.clone()]).conflits(),
+        vec![conflit(&s, &titre, "titre")]
+    );
 }
 
 #[test]
@@ -436,7 +502,10 @@ fn cas_f12_meme_marque_suppression_et_champ() {
 fn collision_de_valeurs_differentes_est_un_conflit() {
     let w1 = ecriture(donnee("d"), champ("f", "v1"), marque(10, 0, A));
     let w2 = ecriture(donnee("d"), champ("f", "v2"), marque(10, 0, A));
-    assert_eq!(recu(&[w1.clone(), w2.clone()]).conflits(), vec![conflit(&w2, &w1, "f")]);
+    assert_eq!(
+        recu(&[w1.clone(), w2.clone()]).conflits(),
+        vec![conflit(&w2, &w1, "f")]
+    );
 }
 
 #[test]
@@ -454,7 +523,9 @@ fn seconde_reception_trois_listes_vides() {
 #[test]
 fn us1_cas8_dix_mille_ecritures_en_un_lot_recu() {
     let mut a = j(A);
-    let lot: Vec<Ecriture> = (0..10_000u64).map(|k| ecr(&mut a, k / 3, "d", champ("f", &k.to_string()))).collect();
+    let lot: Vec<Ecriture> = (0..10_000u64)
+        .map(|k| ecr(&mut a, k / 3, "d", champ("f", &k.to_string())))
+        .collect();
     let mut x = j(X);
     let debut = Instant::now();
     let rapport = x.fusionner(&lot).unwrap();
@@ -502,7 +573,14 @@ fn rang(w: &Ecriture) -> impl Ord {
 }
 
 fn cle_conflit(k: &Conflit) -> impl Ord {
-    (k.donnee.clone(), k.champ.clone(), k.retenue.marque, k.ecartee.marque, rang(&k.retenue), rang(&k.ecartee))
+    (
+        k.donnee.clone(),
+        k.champ.clone(),
+        k.retenue.marque,
+        k.ecartee.marque,
+        rang(&k.retenue),
+        rang(&k.ecartee),
+    )
 }
 
 fn cle_ecartee(w: &Ecriture) -> impl Ord {

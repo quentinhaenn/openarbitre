@@ -20,38 +20,41 @@ pub struct HorlogeSimulee {
 impl HorlogeSimulee {
     /// Source posée sur `t`, non figée.
     pub fn nouvelle(t: u64) -> Self {
-        let _ = t;
-        todo!("T-3: HorlogeSimulee::nouvelle — RG-ST01-4.4")
+        Self {
+            t: t.into(),
+            figee: false.into(),
+        }
     }
 
     /// Pose l'heure à `t` et lève le gel.
     pub fn fixer(&self, t: u64) {
-        let _ = t;
-        todo!("T-3: HorlogeSimulee::fixer — RG-ST01-4.4")
+        self.t.set(t);
+        self.figee.set(false);
     }
 
     /// Avance de `delta` ms (sans effet si figée).
     pub fn avancer(&self, delta: u64) {
-        let _ = delta;
-        todo!("T-3: HorlogeSimulee::avancer — RG-ST01-4.4")
+        if !self.figee.get() {
+            self.t.set(self.t.get().saturating_add(delta));
+        }
     }
 
     /// Recule de `delta` ms, borné à 0 (sans effet si figée).
     pub fn reculer(&self, delta: u64) {
-        let _ = delta;
-        todo!("T-3: HorlogeSimulee::reculer — RG-ST01-4.4")
+        if !self.figee.get() {
+            self.t.set(self.t.get().saturating_sub(delta));
+        }
     }
 
     /// Gèle l'heure courante.
     pub fn figer(&self) {
-        let _ = (&self.t, &self.figee);
-        todo!("T-3: HorlogeSimulee::figer — RG-ST01-4.4")
+        self.figee.set(true);
     }
 }
 
 #[cfg(feature = "sim")]
 impl Clock for HorlogeSimulee {
     fn now(&self) -> u64 {
-        todo!("T-3: HorlogeSimulee::now — RG-ST01-4.4")
+        self.t.get()
     }
 }

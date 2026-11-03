@@ -77,7 +77,10 @@ fn us4_cas7_avance_de_trois_heures_signalee_et_adoptee() {
     let lot = [ecr_l(maintenant + 3 * HEURE, 7)];
     assert_eq!(
         avances(&lot, maintenant, seuil(HEURE)),
-        vec![Avance { appareil: app(7), avance_ms: 3 * HEURE }]
+        vec![Avance {
+            appareil: app(7),
+            avance_ms: 3 * HEURE
+        }]
     );
     let mut h = Horloge::nouvelle(app(1));
     h.recevoir(&lot[0].marque);
@@ -95,7 +98,10 @@ fn us4_cas9_seuil_regle_a_dix_minutes() {
     let lot = [ecr_l(1_000 + 20 * MIN, 7)];
     assert_eq!(
         avances(&lot, 1_000, seuil(10 * MIN)),
-        vec![Avance { appareil: app(7), avance_ms: 20 * MIN }]
+        vec![Avance {
+            appareil: app(7),
+            avance_ms: 20 * MIN
+        }]
     );
 }
 
@@ -108,12 +114,22 @@ fn us4_cas10_ecriture_en_retard_rien_a_signaler() {
 #[test]
 fn avances_maximum_par_appareil_tri_par_appareil() {
     let m = 10 * HEURE;
-    let lot = [ecr_l(m + 3 * HEURE, 9), ecr_l(m + 2 * HEURE, 3), ecr_l(m + 5 * HEURE, 9)];
+    let lot = [
+        ecr_l(m + 3 * HEURE, 9),
+        ecr_l(m + 2 * HEURE, 3),
+        ecr_l(m + 5 * HEURE, 9),
+    ];
     assert_eq!(
         avances(&lot, m, SEUIL_DEFAUT),
         vec![
-            Avance { appareil: app(3), avance_ms: 2 * HEURE },
-            Avance { appareil: app(9), avance_ms: 5 * HEURE },
+            Avance {
+                appareil: app(3),
+                avance_ms: 2 * HEURE
+            },
+            Avance {
+                appareil: app(9),
+                avance_ms: 5 * HEURE
+            },
         ]
     );
 }

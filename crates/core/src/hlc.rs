@@ -1,5 +1,6 @@
 //! Marques, horloge logique hybride, avances (archi ST-01 § Types du cœur, A-11 ; T-3).
 
+use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use core::num::NonZeroU64;
 
@@ -15,8 +16,7 @@ pub struct IdAppareil(pub [u8; 16]);
 impl IdAppareil {
     /// Construit l'identifiant depuis un entier ; l'ordre des entiers est conservé.
     pub fn depuis_u128(n: u128) -> Self {
-        let _ = n;
-        todo!("T-3: IdAppareil::depuis_u128")
+        Self(n.to_be_bytes())
     }
 }
 
@@ -43,8 +43,7 @@ pub struct Horloge {
 impl Horloge {
     /// Horloge de l'appareil `a`, état `(0, 0)`.
     pub fn nouvelle(a: IdAppareil) -> Self {
-        let _ = a;
-        todo!("T-3: Horloge::nouvelle")
+        Self { l: 0, c: 0, a }
     }
 
     /// Émet une marque (RG-ST01-4.2) : `l' = max(l, pt)`, `c' = c + 1` si `l' = l`, sinon 0.
@@ -52,14 +51,22 @@ impl Horloge {
     /// Post : marque > tout ce qui a été émis ou reçu ; `l' ≥ pt` (INV-ST01-5).
     /// Erreur : `c` saturé ou `l' ≥ L_MAX` ⇒ `HorlogeEpuisee`, état inchangé (A-11).
     pub fn emettre(&mut self, pt: u64) -> Result<Marque, HorlogeEpuisee> {
-        let _ = (pt, self.l, self.c, self.a);
-        todo!("T-3: Horloge::emettre — RG-ST01-4.2, INV-ST01-5, A-11")
+        let l = self.l.max(pt);
+        let c = if l == self.l {
+            self.c.checked_add(1).ok_or(HorlogeEpuisee)?
+        } else {
+            0
+        };
+        if l >= L_MAX {
+            return Err(HorlogeEpuisee);
+        }
+        (self.l, self.c) = (l, c);
+        Ok(Marque { l, c, a: self.a })
     }
 
     /// Adopte `max_lex((l, c), (m.l, m.c))` (RG-ST01-4.3). Post : toute émission suivante > `m` (INV-ST01-6).
     pub fn recevoir(&mut self, m: &Marque) {
-        let _ = m;
-        todo!("T-3: Horloge::recevoir — RG-ST01-4.3, INV-ST01-6")
+        (self.l, self.c) = (self.l, self.c).max((m.l, m.c));
     }
 }
 
@@ -82,6 +89,16 @@ pub struct Avance {
 /// Post : une entrée par appareil, avance maximale du lot, triée par appareil ;
 /// avance égale au seuil non signalée (INV-ST01-8). Pure.
 pub fn avances(lot: &[Ecriture], maintenant: u64, seuil: Seuil) -> Vec<Avance> {
-    let _ = (lot, maintenant, seuil);
-    todo!("T-3: avances — RG-ST01-4.6, INV-ST01-8")
+    let mut max: BTreeMap<IdAppareil, u64> = BTreeMap::new();
+    for w in lot {
+        let avance = max.entry(w.appareil()).or_default();
+        *avance = (*avance).max(w.marque.l.saturating_sub(maintenant));
+    }
+    max.into_iter()
+        .filter(|&(_, avance_ms)| avance_ms > seuil.0.get())
+        .map(|(appareil, avance_ms)| Avance {
+            appareil,
+            avance_ms,
+        })
+        .collect()
 }
