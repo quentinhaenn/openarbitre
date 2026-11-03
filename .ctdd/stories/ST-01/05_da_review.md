@@ -1,188 +1,119 @@
-# Revue Devil's Advocate — ST-01 : Fusion pure et fondations du dépôt (itération 1)
+# Revue Devil's Advocate — ST-01 : Fusion pure et fondations du dépôt (itération 2)
 
 ## Verdict global
-**BLOQUÉ.**
-Le plan est complet sur les matrices et bien découpé. Mais la portée de `vu` pour une suppression, fixée par l'archi (`03_archi.md`, « Portée de `vu` ») et implémentée telle quelle par T-6/T-7, laisse passer une suppression concurrente d'une modification sans la signaler, avec deux appareils seulement. Aucun test du plan ne peut le voir. La faille est en amont du plan, dans la règle arbitrée : elle remonte au Spécificateur ou à l'Architecte, puis à Quentin, et non au Planner seul.
+**PASSE AVEC RÉSERVES.**
+Le moteur tient : `vu` par visée réfute le contre-exemple F-1, l'oracle causal ferme F-2, et A-3, A-4 et A-10 ferment F-4, F-5 et F-20 sans laisser de trou que j'aie pu construire. Les réserves portent sur l'outillage. Le contrôle « juge touché » s'exécute depuis la tête de la PR qu'il juge, donc F-9 n'est levée qu'en partie. Un motif de zone ajouté peut abaisser le `Full` par défaut. Enfin, `zones.toml` laisse la CLI en `Full`, ce qui rend inatteignables les critères de T-10 et de T-14.
+
+## Vérification des failles de la v1
+
+| Faille v1 | Statut | Constat |
+|---|---|---|
+| F-1 | **Levée** | Contre-exemple rejoué avec A-1 : la suppression (10,0,A) a `vu = {Champ(échéance): (9,0,A)}`, donc `vu[Champ(titre)] = ⊥` et la paire est concurrente, d'où un conflit. Le cas 3 de la matrice US-3 passe aussi, avec `vu = {f: (10,0,A)}`. Le test est nommé en T-6. |
+| F-2 | **Levée** | `a_vu*` suit la règle arbitrée appliquée au registre réel. L'égalité est vérifiée après chaque action, et la vérification ponctuelle (i) prouve que la propriété voit la règle v1. Le sens « conflit ⇒ ni l'un ni l'autre ne connaissait » est bien impliqué. |
+| F-3 | **Levée** (hors R-10, accepté en Q-10) | Graine fixée dans `config()`. Cas 12 de la matrice US-6 en T-14. |
+| F-4 | **Levée** | Un `BTreeSet<Contenu>` par identité : rien n'est remplacé, la partition tient, la seconde réception est vide, et `conflits(S)` redevient monotone. |
+| F-5 | **Levée** | A-4 sépare les clés contractuelles des `Ord` de commodité. Le tri des conflits est explicite. |
+| F-6 | **Levée** | Les features sont écrites par dépendance, `proptest` et `serde_json` gardent `std`, et une crate jetable vérifie une fois. Ce qui reste (le `Cargo.lock` ne fige pas les six crates non héritées) est assumé par A-5. |
+| F-7 | **Levée sur l'heure** | Plus d'exemption, `UNIX_EPOCH` et `env::` ajoutés. Effets de bord en F-7 ci-dessous. |
+| F-8 | **Levée** | Périmètre fixé par `git ls-files`. La documentation n'est plus fouillée. |
+| F-9 | **Partiellement levée** | Le juge attrape une modification de `mutation.py`, `graphe.py`, `outils.env` et des contrôles 10 à 50. Il ne peut rien contre une modification de son propre exécuteur : voir F-1 ci-dessous. |
+| F-10 | **Levée** (2) ; (1) acceptée en Q-4 | `L_MAX` est contrôlé à la validation et à l'émission. |
+| F-11 | **Levée** ; reste accepté en Q-6 | `vu_pour` est privée, et `ecrire` est le seul chemin local. |
+| F-12 | **Acceptée** (Q-5) | Le comportement est fixé et testé. Un détail du conflit reste non spécifié : F-4 ci-dessous. |
+| F-13 | **Levée** | 3.13 et `full_match` partout dans le plan. Le corps de l'archi dit encore 3.11 (P-3), mais il est amendé. |
+| F-14 | **Levée** | La table A-9 suit le graphe du cadre (`.ctdd/cadre/03_archi.md` l. 52-66), Q-7 compris. Échec fermé pour une crate inconnue. |
+| F-15 | **Levée** | `clock.rs` est passé en T-3. |
+| F-16 | **Levée** | Le journal porte l'horloge, avec un tout ou rien qui inclut l'horloge (testé en T-5). |
+| F-17 | **Levée dans le plan** | Le corps de l'archi n'est pas amendé : F-6 ci-dessous. |
+| F-18 | **Levée** | T-0 envoie et protège, T-14 rend le check requis. La commande de T-14 est fausse : F-5 ci-dessous. |
+| F-19 | **Levée** | Démonstration 0 de T-12. |
+| F-20 | **Levée pour un gros lot unique** | La complétude de l'intervalle d'A-10 est vérifiée : `x` de rang inférieur et `¬a_vu(w, x)` placent `marque(x)` dans `]vu(w)[v], marque(w)]`. La borne haute inclusive couvre les collisions et le cas F-12. Reste à voir : F-8 ci-dessous. |
 
 ## Failles identifiées
 
-### [BLOQUANT] F-1 : une suppression « voit » les modifications concurrentes des autres champs
-- **Axe** : Edge cases (et Cohérence specs ↔ archi)
-- **Source** : 02_specs « Arbitrages » CONFLIT-ST01-1 (a) ; RG-ST01-2.1 ; [HYP] du cahier « suppression et modification concurrentes = conflit » (validée en bloc) ; matrice US-3, cas 2 ; 03_archi « Portée de `vu` »
-- **Tâche(s) concernée(s)** : T-6 (`vu_pour`), T-7 (règle de conflit), T-8
-- **Description** : l'archi donne à une suppression `vu = max` des marques connues sur **toutes** les écritures de la donnée, tous champs confondus. Une seule marque scalaire ne dit pas *quelles* écritures ont été vues. Une modification locale d'un autre champ, plus récente, fait donc passer pour « vue » une modification distante plus ancienne que l'auteur n'a jamais reçue.
-- **Preuve (contre-exemple, deux appareils)** :
-  1. Le téléphone B, hors ligne, écrit `titre = "x"` à (7,0,B), avec `vu = ⊥`.
-  2. L'ordinateur A, qui n'a rien reçu de B, écrit `échéance = "y"` à (9,0,A), puis supprime la donnée à (10,0,A). Le `vu` de la suppression vaut (9,0,A), sa propre écriture.
-  3. Après synchronisation, `a_vu(suppr, titre) ⇔ (9,0,A) ≥ (7,0,B)` est **vrai**. La paire n'est donc pas concurrente et aucun conflit n'est signalé. La paire `(échéance, titre)` n'est pas exclusive (champs différents), donc pas de conflit non plus.
-  4. Résultat : donnée supprimée, modification du titre masquée, **aucun conflit nulle part**. C'est le cas 2 de la matrice US-3 (« conflit attendu »), avec un champ de plus.
-  - Ce n'est pas la limite acceptée par l'arbitrage (« après avoir vu seulement la gagnante d'une paire concurrente ») : `échéance` et `titre` ne forment pas une paire, et rien n'est signalé.
-  - La portée littérale de l'arbitrage (« même cible et suppressions de la donnée », soit pour une suppression : les seules suppressions) échoue dans l'autre sens. Au cas 3 de la matrice US-3 (A écrit f, B la reçoit puis supprime), le `vu` de la suppression vaut `⊥` et un **faux** conflit sort. Aucune portée d'une marque unique par suppression ne tient à la fois US-3 cas 3 et la [HYP]. L'archi a dévié de l'arbitrage sans le lister dans « Écarts aux specs » (E-1 à E-3).
-  - Conséquence : cadre AC-2.6 et RG-G7 ne tiennent plus pour les cas 5 et 6 de la matrice US-2 du cadre, dès qu'un second champ a été modifié.
-
-### [MAJEUR] F-2 : aucune propriété ne vérifie « concurrentes ⇒ conflit »
-- **Axe** : Complétude
-- **Source** : INV-ST01-2 (`conflit ⇔ concurrentes ∧ exclusives ∧ valeurs différentes`) ; PROP-ST01-2
-- **Tâche(s) concernée(s)** : T-7, T-8
-- **Description** : T-8 vérifie un seul sens (« un écrasement fait après réception n'est jamais un conflit »). Le sens inverse, une paire réellement concurrente toujours signalée, n'est couvert que par les exemples à deux appareils et à un seul champ des matrices US-2 et US-3.
-- **Preuve** : la faille F-1 passe tous les critères de T-6, T-7 et T-8. Pourtant, les appareils simulés de T-8 savent exactement ce que chacun avait reçu au moment d'écrire : la vérité causale est disponible et le plan ne s'en sert pas.
-
-### [MAJEUR] F-3 : tests par propriétés non déterministes, alors que le verdict de mutation est bloquant
-- **Axe** : Cohérence / Cas d'erreur
-- **Source** : RG-ST01-6.1 (`verdict_local = verdict_CI`), matrice US-6, cas 12 ; arbitrage « Score de mutation sous le seuil : bloquant » ; E-1.1 « rejouable à partir de sa graine »
-- **Tâche(s) concernée(s)** : T-8, T-10, T-13
-- **Description** : proptest tire une graine aléatoire à chaque exécution. Rien dans le plan ne fixe ni ne transmet la graine.
-- **Preuve** :
-  - Un mutant tué par 1 000 jeux dans une exécution peut survivre dans la suivante. Un score proche de 85 % (risque R-1 du plan) bascule alors d'une exécution à l'autre, sur la même tête. Le délai d'attente compté comme « détecté » (MANQUE-ST01-8) dépend en plus de la vitesse de la machine (macOS en local, `ubuntu-latest` en CI).
-  - Un contre-exemple rare peut aussi rendre `10-st01-tests` rouge sur une PR purement documentaire, et `main` est « protégée sans exception » (arbitrage Q-1).
-  - Le cas 12 de la matrice US-6 n'apparaît dans aucun critère de complétion. Le tableau des invariants l'attribue à T-10 et T-11, dont les critères ne le citent pas.
-
-### [MAJEUR] F-4 : l'anomalie (MANQUE-ST01-2) casse l'idempotence et la partition
-- **Axe** : Edge cases
-- **Source** : AC-1.5 ; RG-2.2 (seconde réception : listes vides) ; RG-2.4 (`retenues ⊎ écartées = S`) ; 03_archi, type `Anomalie` ; T-6 (« garde le plus grand contenu »)
-- **Tâche(s) concernée(s)** : T-6, T-7, T-8
-- **Description** : le `Journal` ne garde qu'un `Contenu` par identité. Le contenu perdant d'une anomalie sort donc du journal.
-- **Preuve** :
-  - (1) Il n'est ni retenu ni écarté, ce qui contredit la partition de RG-2.4. Seul le `Rapport` transitoire le rend.
-  - (2) Recevoir de nouveau l'écriture perdante produit une nouvelle `Anomalie`, puisque le journal ne sait pas qu'il l'a déjà vue. La seconde réception ne rend donc pas un rapport vide.
-  - (3) Remplacer un contenu change son `vu`, donc les conflits des paires où il figure. `conflits(S)` cesse d'être monotone, et le calcul incrémental « nouvelle × portée » de T-7 ne réévalue pas les paires du contenu remplacé.
-  - Les générateurs de T-8 produisent des doublons (même identité, même contenu), pas des identités en collision avec des contenus différents. Les propriétés INV-5 ne couvrent donc pas ce chemin.
-
-### [MAJEUR] F-5 : les `Ord` dérivés ne donnent pas les ordres de tri des specs
-- **Axe** : Cohérence
-- **Source** : RG-ST01-2.2 (écartées par `(donnée, cible, marque)`, conflits par `(donnée, champ, marque retenue, marque écartée)`) ; 03_archi (« les tris découlent des `Ord` dérivés », « l'ordre de déclaration des champs […] est contractuel ») ; `Ecriture = (donnée, quoi, marque, vu, auteur)` avec `quoi = Champ { nom, valeur }`
-- **Tâche(s) concernée(s)** : T-5, T-7
-- **Description** :
-  - Un `Ord` dérivé sur `Ecriture` compare `quoi`, donc `valeur`, **avant** `marque`. Trier des `Ecriture` revient à trier par valeur, pas par marque.
-  - Un `Ord` dérivé sur `Conflit { donnée, champ, retenue: Ecriture, ecartee: Ecriture }` trie par `retenue.donnée`, puis `retenue.quoi` (valeur comprise), puis seulement `retenue.marque`.
-  - Seul le parcours du `BTreeMap<(Cible, Marque), _>` donne l'ordre des écartées.
-- **Preuve** : la consigne de l'archi (« ordre de déclaration contractuel, tris dérivés ») et celle de T-7 (« trié par (donnée, champ, marque retenue, marque écartée) ») mènent à deux ordres différents dès que deux conflits du même champ ont des valeurs retenues dans un autre ordre que leurs marques. Le Skeleton devra trancher entre deux sources.
-
-### [MAJEUR] F-6 : les dépendances communes déclarées ne sont ni résolues ni vérifiées, et T-1 retire les features par défaut de `proptest`
-- **Axe** : Cohérence / Cas d'erreur
-- **Source** : AC-8.3 ; 03_archi, tableau des dépendances communes (`proptest` : « normale ») et « le `Cargo.lock` fait foi » ; T-1 (« `default-features = false` sauf mention », sans mention pour `proptest` ni `serde_json`)
-- **Tâche(s) concernée(s)** : T-1, T-2, T-8
-- **Description** :
-  - (1) Cargo ne résout pas une entrée de `[workspace.dependencies]` qu'aucun membre n'hérite. Six des huit (`tokio`, `reqwest`, `keyring`, `serde`, `serde_json`, `jiff`, `getrandom`, moins celles utilisées) n'entrent pas dans `Cargo.lock`. Une version inexistante ou un nom de feature faux (par exemple celui de rustls dans `reqwest` 0.13) passe donc le critère `cargo build --workspace --locked` de T-1. « Le `Cargo.lock` fait foi » est faux pour elles.
-  - (2) La lettre de T-1 contredit l'archi pour `proptest` (et pour `serde_json`, qui exige `std` ou `alloc`).
-- **Preuve** : `proptest` sans ses features par défaut perd `std`. La persistance des échecs (`FileFailurePersistence`) en dépend, et E-1.1 (« rejouable », `proptest-regressions/` versionné) tombe en silence, s'il compile encore. `serde_json` sans `std` ni `alloc` ne compile pas, mais l'erreur n'apparaîtra qu'à la première story qui l'hérite. La décision « prise une fois » d'US-8 n'est donc jamais vérifiée en ST-01.
-
-### [MAJEUR] F-7 : la garde de pureté textuelle exempte `clock.rs` et ne voit pas toutes les lectures d'heure
-- **Axe** : Sécurité & intégrité (contournement d'invariant)
-- **Source** : AC-5.1 ; RG-ST01-4.4 (« lecture de l'heure système par le cœur → interdite ; détectée par la vérification ») ; 03_archi (c) ; plan, « Over-engineering » (cas 9 de la matrice US-1 écarté **grâce à** (c))
-- **Tâche(s) concernée(s)** : T-9a, T-8
-- **Description** : (c) recherche `SystemTime`, `Instant::now` et `::now(` hors de `clock.rs`.
-- **Preuve** :
-  - `clock.rs` est le fichier où un adaptateur système posé « à côté du trait » atterrirait le plus naturellement. `SystemTime::now()` compile en `wasm32-unknown-unknown` et panique à l'exécution (note de l'archi elle-même). Or `HorlogeSimulee::now` est une définition (`fn now(`), pas un appel `::now(` : l'exemption ne protège aucun usage légitime.
-  - Hors de `clock.rs`, `std::time::UNIX_EPOCH.elapsed()` lit l'heure système sans contenir aucun des trois motifs.
-  - Le plan s'appuie sur cette garde pour ne pas tester le cas 9 de la matrice US-1 : c'est la seule défense de RG-ST01-1.1 sur ce point.
-
-### [MAJEUR] F-8 : la recherche des canaux d'exclusion de mutation n'a pas de périmètre et se trouve elle-même
-- **Axe** : Régressions
-- **Source** : 03_archi, `mutants_equivalents.toml` (« `50-st01-mutation.sh` les recherche (dépôt et `.cargo/mutants.toml`) ») ; T-10 ; T-2 (CONTRIBUTING documente l'interdiction)
-- **Tâche(s) concernée(s)** : T-2, T-10
-- **Description** : « le dépôt » contient `mutants::skip`, `exclude_re` et `--exclude` dans `CONTRIBUTING.md` (T-2), dans `.ctdd/stories/ST-01/03_archi.md` et `04_plan.md`, et dans `50-st01-mutation.sh` lui-même.
-- **Preuve** : lue à la lettre, la règle rend `rouge` en permanence dès la PR de ST-01. Restreinte au hasard par l'implémenteur, elle peut à l'inverse manquer un vrai canal. Le plan ne fixe ni les chemins fouillés ni la forme des motifs.
-
-### [MAJEUR] F-9 : la PR jugée peut modifier son juge
+### [MAJEUR] F-1 : le juge s'exécute depuis la tête de la PR qu'il juge
 - **Axe** : Sécurité & intégrité
-- **Source** : AC-6.6 (« sans modifier les règles posées ici ») ; US-6, objectif « ne plus relire à la main ce qu'une machine peut garantir » ; 03_archi, « fichiers `*-st01-*` gelés » ; arbitrage Q-1 (check requis)
-- **Tâche(s) concernée(s)** : T-10, T-11
-- **Description** : sur `pull_request`, GitHub exécute le `ci.yml`, le `ci.sh`, les `ci.d/*`, les `outils.env` et les `zones.toml` **de la PR**. « Gelé » n'est qu'une convention écrite. Rien ne rend rouge une PR qui touche ces fichiers.
-- **Preuve** : un agent bloqué par le seuil de 85 % peut, dans la même PR :
-  - retirer `merge.rs` de `Full` et l'ajouter en `Std` : la règle du plus exigeant donne alors `Std`, et le garde-fou ne vise que `Gen` ;
-  - ou abaisser le seuil dans `mutation.py` ;
-  - ou supprimer `50-st01-mutation.sh`.
+- **Source** : A-8 (fichiers protégés : `.github/workflows/*`, `scripts/ci.sh`, `scripts/ci.d/*-st01-*`) ; arbitrage F-9 du plan v1 (« garde-fou contre la dérive d'un agent ») ; F-9 de la v1 (« GitHub exécute le `ci.yml`, le `ci.sh`, les `ci.d/*` […] de la PR »)
+- **Tâche(s) concernée(s)** : T-10 (`05-st01-juge.sh`), T-11
+- **Description** : `ci.sh` exécute les `ci.d/*.sh` de l'arbre de travail, donc de la tête. Le workflow `pull_request` exécute le `ci.yml` de la PR. Trois des fichiers protégés sont donc précisément le code qui fait le contrôle. Les modifier ne déclenche jamais le contrôle.
+- **Preuve (contre-exemples, chacun suffit, aucun label)** :
+  1. La PR modifie `mutation.py` (seuil) et remplace le corps de `05-st01-juge.sh` par `exit 0`. Le `05` de la tête sort à 0, et le `50` de la tête lit le seuil abaissé. Le check `ci` est vert.
+  2. La PR ajoute `continue-on-error: true` à l'étape `scripts/ci.sh` de `ci.yml`, ou écrit `scripts/ci.sh || true`. Le `05` s'exécute, rend `rouge`, et le job reste vert. C'est la dérive la plus probable d'un agent qui veut « faire passer la CI », et justement le cas que l'arbitrage F-9 vise.
+  3. La PR **ajoute** `ci.d/45-st05-prep.sh`, ce qui est libre selon A-8 (« un ajout reste libre »). Ce script écrit un `.cargo/mutants.toml` non suivi, avec `exclude_re`, ou réécrit le seuil sur disque avant que `50` tourne. A-7 ne fouille que `git ls-files` : un fichier créé à l'exécution lui échappe. Rien n'impose non plus le numéro ≥ 60 aux ajouts.
+  - Le critère de T-12 ne teste que des modifications de `mutation.py` et de `zones.toml` (démonstrations 7 à 9). Aucune démonstration ne touche `05`, `ci.sh` ou `ci.yml`. Le plan déclare F-9 « Levée (restes : Q-8) », et Q-8 ne couvre aucun de ces trois chemins.
 
-  Le check requis reste vert. Seule la relecture humaine l'arrête, alors qu'US-6 a justement pour but de s'en passer, et le cadre prévoit des agents qui travaillent en parallèle.
+### [MAJEUR] F-2 : ajouter un motif peut abaisser le `Full` par défaut
+- **Axe** : Sécurité & intégrité / Cohérence
+- **Source** : AC-7.3 et RG-ST01-7.2 (fichier non couvert ⇒ `Full`) ; règle de la story « Zone Full par défaut » ; A-8 (« chaque couple `(motif, zone)` présent à la base doit rester […] ; ajouter une zone ou un motif reste libre »)
+- **Tâche(s) concernée(s)** : T-9 (`zones_abaissees`), T-10
+- **Description** : le juge protège les couples **explicites** de la base. Il ne protège pas la zone **implicite** `Full` des fichiers qu'aucun motif ne couvre. Le garde-fou ne vise que `Gen`.
+- **Preuve** : la PR de ST-05 crée `.ctdd/stories/ST-05/zones.toml` avec `Std = ["crates/core/src/**"]`, pour déclarer en une ligne son nouveau fichier de contexte. Ce fichier est une addition, donc libre. `hlc.rs`, `write.rs` et `merge.rs` restent en `Full` grâce à leurs couples explicites. En revanche, `crates/core/src/lib.rs` et tout fichier du cœur créé plus tard sans motif propre passent de `Full` à `Std` (la règle du plus exigeant ne joue qu'entre motifs qui couvrent le fichier). Aucune ligne ne devient `rouge`. Ce glob large est un raccourci naturel pour un agent, pas un acte malveillant.
 
-### [MAJEUR] F-10 : les marques reçues ne sont pas bornées
-- **Axe** : Cas d'erreur / Sécurité
-- **Source** : RG-ST01-4.3 (marque en avance acceptée, arbitrage « Horloge en avance ») ; MANQUE-ST01-3 ; 03_archi (`l` < 2^53, contrainte de S1-A) ; RG-G3 (même moteur pour l'import, ST-04b)
-- **Tâche(s) concernée(s)** : T-3, T-5
-- **Description** : `recevoir` adopte `(lm, cm)` sans borne, et `valider` ne contrôle ni `l` ni `c`.
-- **Preuve** :
-  - (1) Une marque reçue `(l_futur, u32::MAX, X)` met le compteur local à `u32::MAX`. Tant que l'heure physique n'a pas dépassé `l_futur`, ce qui peut prendre des jours puisque l'avance est acceptée, chaque `emettre` rend `CompteurEpuise` : l'appareil ne peut plus écrire. Le test de saturation de T-3 ne couvre que les émissions propres.
-  - (2) Un `l ≥ 2^53` est accepté puis réémis par tous les appareils (RG-ST01-4.3). Il casse la contrainte que l'archi pose elle-même pour wasm, et `l ≥ 2^63` ne tient pas dans l'`INTEGER` signé de SQLite (ST-02).
-  - L'entrée peut venir d'un fichier d'import corrompu (ST-04b), pas seulement d'un pair.
+### [MAJEUR] F-3 : `zones.toml` laisse `crates/cli/src/main.rs` en `Full`, donc les critères de T-10 et T-14 sont inatteignables
+- **Axe** : Cohérence / Complétude
+- **Source** : 03_archi, « `zones.toml` recommandé pour ST-01 » (`Gen = ["crates/cli/src/**"]`) et Classification DDD (`main.rs` : Generic, Gen) ; `zones.toml` livré (Full et Std seulement, « inchangé depuis la v1 ») ; RG-ST01-7.2 (fichier non couvert ⇒ `Full`) ; RG-ST01-7.3
+- **Tâche(s) concernée(s)** : T-1 (réécrit `main.rs`), T-10 (critère « `ci.sh` vert en local une fois T-7 fait »), T-14 (CI verte)
+- **Description** : T-1 réécrit `main.rs` en parseur clap. Le fichier entre donc dans le diff de la PR de ST-01, en `Full` par défaut. Aucune tâche ne lui écrit de test : T-1 vérifie `arbitre --version` à la main.
+- **Preuve** : cargo-mutants génère pour ce fichier au moins `replace main with ()`. Aucun test du paquet `arbitre` n'échoue sur ce mutant, qui est donc `missed`. Le score vaut 0/1, sous les 85 %, et `50-st01-mutation.sh` rend `rouge`. Le critère de T-10 et la « CI verte » de T-14 ne peuvent donc pas être tenus, et le plan s'écarte de l'archi sans amendement (A-1 à A-11 ne citent pas `zones.toml`). Le fichier est déjà sur la base (`main`). Le juge (A-8) s'applique donc à ses couples dès la PR de ST-01.
 
-### [MINEUR] F-11 : `vu` est déclaré librement par l'émetteur
-- **Axe** : Sécurité & intégrité
-- **Source** : 03_archi, Synthèse 3 (« les états impossibles ne sont pas représentables ») ; `vu_pour` (« pour que les surfaces ne réimplémentent pas cette règle ») ; E-2
-- **Tâche(s) concernée(s)** : T-5, T-6
-- **Description** : `Ecriture` se construit avec n'importe quel `vu < marque`. Rien ne lie `vu` à `vu_pour`.
-- **Preuve** : une surface de ST-03 ou plus tard qui prend l'état de l'`Horloge` au lieu de `vu_pour` produit des `vu` maximaux. Toutes ses écritures passent alors pour séquentielles, et plus aucun conflit n'est signalé, sans qu'aucun contrôle ne le voie.
-
-### [MINEUR] F-12 : égalité `t_s = t_f` représentable
+### [MINEUR] F-4 : cas F-12, la « retenue » du conflit est la suppression, alors que la donnée est `présente`
 - **Axe** : Edge cases
-- **Source** : RG-2.3 (« l'égalité `t_s = t_f` est impossible entre deux écritures distinctes ») ; glossaire, identité `(cible, marque)`
-- **Tâche(s) concernée(s)** : T-5, T-6
-- **Description** : l'identité inclut la cible. Un même appareil peut donc poser la même marque sur une suppression et sur un champ de la même donnée, et rien ne l'interdit.
-- **Preuve** : dans ce cas, `supprimée` est faux (égalité). Comme `vu < marque` des deux côtés, les deux écritures du même auteur, au même instant, sont « concurrentes » : un conflit sort entre elles. Le comportement n'est ni spécifié ni testé.
+- **Source** : A-3 (rang `(marque, cible, contenu)`), A-1 (`Visee` : champs avant suppression), A-10 (« retenue = rang max ») ; RG-ST01-2.1 (`retenue = max_<`) ; RG-2.3 ; Q-5
+- **Tâche(s) concernée(s)** : T-6 (test nommé F-12)
+- **Description** : à marque égale, le rang départage par la cible, et `Suppression` se classe au-dessus de `Champ`. Le conflit rend donc `retenue = suppression`, `écartée = champ`. Pourtant `t_s = t_f` donne `présente`, avec la suppression dans les écartées.
+- **Preuve** : la paire nomme comme « retenue » l'écriture que la projection écarte. Q-5 fixe « `présente`, plus un conflit » sans fixer le sens de la paire, et le critère de T-6 ne le vérifie pas. Un mutant qui inverse ce départage survit.
 
-### [MINEUR] F-13 : texte du plan contraire à l'arbitrage Q-2
-- **Axe** : Cohérence
-- **Source** : 04_plan, « Arbitrages » Q-2 (Python ≥ 3.13, `full_match`, pas de traducteur)
-- **Tâche(s) concernée(s)** : T-9a, T-9b, T-10
-- **Description** : le plan dit encore « Python ≥ 3.11 » à cinq endroits : Traçabilité, Stack, Under-engineering, T-9a, et T-10 (`PYTHON_MIN=3.11`). T-9b décrit toujours la « traduction motif → regex ».
-- **Preuve** : un agent qui exécute T-10 tel qu'il est rédigé écrit `PYTHON_MIN=3.11`. Le contrôle de version passe alors en 3.11 et 3.12, puis `full_match` lève `AttributeError`.
-
-### [MINEUR] F-14 : règles d'arêtes non définies pour six crates
-- **Axe** : Complétude
-- **Source** : AC-6.3 (« règles écrites par nom pour **tous** les composants prévus ») ; T-9a (« les **neuf** crates ») ; 03_archi (a) (règles pour `core`, `plan` et `diff` seulement) ; cadre 03_archi, graphe de dépendances
-- **Tâche(s) concernée(s)** : T-9a
-- **Description** : aucune source ne donne les règles de `arbitre-sqlite`, `-relay`, `-ai`, `-calendar`, `-web` et `arbitre`, alors que le graphe du cadre en implique (par exemple : `relay` ne dépend que de `core`, `calendar` de `plan`).
-- **Preuve** : l'implémenteur les inventera ou les omettra. Comme `ci.d/*-st01-*` est gelé, les ajouter plus tard sera un amendement du socle.
-
-### [MINEUR] F-15 : T-4 dépend de T-3 sans le déclarer
-- **Axe** : Cohérence
-- **Source** : T-4, critère (« plus deux `Horloge` (T-3) »)
-- **Tâche(s) concernée(s)** : T-4, ordre d'exécution
-- **Description** : T-4 est annoncée « parallélisable avec T-3 », mais son critère (matrice US-4, cas 1) exige l'`Horloge` de T-3.
-- **Preuve** : lancée en parallèle, T-4 ne peut pas atteindre son critère.
-
-### [MINEUR] F-16 : ordre `fusionner` / `recevoir` non spécifié
+### [MINEUR] F-5 : la commande de T-14 qui rend le check requis échoue
 - **Axe** : Cas d'erreur
-- **Source** : RG-ST01-4.3 ; 03_archi (« toute écriture entrée dans le journal est passée par `recevoir` », contrat de la coquille)
-- **Tâche(s) concernée(s)** : T-3, T-6, T-8
-- **Description** : rien ne dit si l'horloge adopte la marque d'un lot que `fusionner` refuse (`ErreurLot`), ni qui calcule le maximum du lot pour `recevoir(&Marque)`.
-- **Preuve** : T-8 doit écrire ce protocole pour ses appareils simulés. Sans règle, chaque surface le réécrira, ce qu'`vu_pour` voulait justement éviter.
+- **Source** : T-0 (`"required_status_checks": null`) ; T-14 (`gh api -X PATCH …/protection/required_status_checks -f strict=true -f 'contexts[]=ci'`)
+- **Tâche(s) concernée(s)** : T-14
+- **Description et preuve** :
+  - Le sous-objet n'existe pas après T-0. Le `PATCH` vise donc une ressource absente, et l'API répond « Required status checks not enabled ».
+  - `-f` envoie une chaîne. `strict` part donc en `"true"`, pas en booléen, et l'API rend une erreur de validation. Il faut `-F`.
+  - Le dernier critère de T-14 n'est pas atteignable avec cette commande telle qu'elle est écrite.
 
-### [MINEUR] F-17 : profil de mutation par variable d'environnement
+### [MINEUR] F-6 : le corps de l'archi garde le « profil de mutation à jeux réduits »
 - **Axe** : Cohérence
-- **Source** : 03_archi, « Propriétés » (« 1 000 jeux fixés dans le code, et non par variable d'environnement ») ; 04_plan R-2 (« variable lue par les tests »)
-- **Tâche(s) concernée(s)** : T-13
-- **Description** : la mitigation de R-2 contredit l'archi.
-- **Preuve** : `ProptestConfig { cases: 1000 }` explicite ignore `PROPTEST_CASES`. Le jour où il faut réduire les jeux, la mitigation ne s'applique pas telle qu'elle est écrite. Moins de jeux fait aussi baisser le score, en contradiction avec K-7.5.
+- **Source** : 03_archi, « Temps de mutation » (« on réduit les jeux dans un profil de mutation ») ; plan, R-2 et Over-engineering (« jamais moins de jeux ») ; arbitrage de l'archi (« A-1 à A-11 font foi », et le corps fait foi sur le reste)
+- **Tâche(s) concernée(s)** : T-14
+- **Description** : la correction de F-17 vit dans R-2, pas dans un amendement. Le corps de l'archi, qui fait foi hors A-1 à A-11, prescrit toujours le contraire.
+- **Preuve** : si la durée de la mutation dépasse le temps acceptable en T-14, deux sources qui font foi prescrivent deux leviers opposés.
 
-### [MINEUR] F-18 : envoi initial et protection de `main` absents du plan
-- **Axe** : Complétude
-- **Source** : 04_plan, arbitrage Q-1 (« les commits locaux antérieurs à la protection sont envoyés avant qu'elle soit activée ») ; T-13 (« seule tâche qui envoie ») ; état relevé : `main` locale **en avance de 3 commits** sur `origin/main`
-- **Tâche(s) concernée(s)** : T-0, T-11, T-13
-- **Description** : aucune tâche n'envoie ces trois commits après G-1, n'active la protection, ni ne nomme le check requis.
-- **Preuve** : T-13 est présentée comme le seul envoi, ce que contredit l'arbitrage.
+### [MINEUR] F-7 : les motifs d'A-6 sont à la fois trop larges et incomplets
+- **Axe** : Sécurité & intégrité / Régressions
+- **Source** : A-6 ; AC-1.7 et RG-ST01-1.1 (« ne lit ni n'écrit aucun stockage […] aucun réseau ») ; archi, Contraintes (« aucune entrée-sortie, aucun thread ») ; A-8 (`graphe.py` protégé)
+- **Tâche(s) concernée(s)** : T-8
+- **Description et preuve** :
+  - **Trop larges.** La recherche est textuelle et inclut les commentaires. `Instant` se déclenche sur le mot français en début de phrase (« /// Instant courant, en ms UTC », doc naturelle de `Clock::now`) et sur tout identifiant de planning qui contient ce mot (`crates/plan/src`, `InstantDebut`). `SystemTime` se déclenche sur une doc qui renvoie vers l'adaptateur de ST-03. Comme `graphe.py` est gelé, chaque faux positif exige une PR `ci-change`.
+  - **Incomplets.** `std::fs`, `std::net`, `std::process` et `std::thread` compilent pour `wasm32-unknown-unknown` (ce sont des souches qui échouent à l'exécution). Ils échappent donc à la construction navigateur, à la règle (b), qui ne vise que des crates, et aux motifs d'A-6. Aucun contrôle ne voit une lecture de fichier ajoutée au cœur, alors qu'AC-1.7 l'interdit au même titre que l'heure.
 
-### [MINEUR] F-19 : matrice US-6, cas 2, sans tâche
-- **Axe** : Complétude
-- **Source** : 02_specs, matrice US-6, cas 2 (« test en échec → rouge »)
-- **Tâche(s) concernée(s)** : T-10, T-12
-- **Description** : aucun critère ni aucune démonstration ne cite ce cas. Le cas 12 est traité en F-3.
-- **Preuve** : les critères de T-10 (cas 4, 9, 10, 11) et de T-12 (cas 3, 5, 6, 8) ne le contiennent pas.
-
-### [MINEUR] F-20 : coût quadratique sur un gros lot unique
+### [MINEUR] F-8 : sorties incrémentales quadratiques sur une donnée chargée, reçue lot par lot
 - **Axe** : Over/Under-engineering
-- **Source** : 04_plan, Under-engineering (« nouvelle × portée ») ; matrice US-1, cas 8 ; RG-G3 (import par le même moteur)
+- **Source** : A-10 (« `nouveaux_conflits = conflits_de(d) après \ avant`, pour chaque donnée touchée ») ; matrice US-1, cas 8 ; RG-G3
+- **Tâche(s) concernée(s)** : T-6
+- **Description** : chaque `fusionner` recalcule deux fois les conflits de toute donnée touchée, en `O(n_d log n)`.
+- **Preuve** : prenons les 10 000 écritures du cas 8, reçues en 10 000 lots d'une écriture (synchronisation au fil de l'eau, ST-19). Cela donne environ 2·10^8 parcours d'intervalle. F-20 n'est levée que pour le lot unique : c'est le seul cas que mesure T-6 (« en un seul lot reçu »).
+
+### [MINEUR] F-9 : la même écriture sous deux encodages de `vu` devient une collision
+- **Axe** : Edge cases
+- **Source** : A-1 (« des entrées en trop […] ne sont pas refusées ») ; A-3 (`Contenu = (valeur?, vu, auteur)`, anomalie = identité à plusieurs contenus) ; Q-6 (lots désérialisés en ST-02 et ST-04b)
+- **Tâche(s) concernée(s)** : T-4, T-5
+- **Description** : `vu` fait partie du contenu, et sa forme n'est pas canonique, puisque les entrées en trop sont admises.
+- **Preuve** : prenons un sérialiseur (ST-02, ST-04b) qui ajoute ou retire une entrée inoffensive, par exemple une entrée `Champ(g)` sur une écriture de `f`. Il réémet une écriture connue avec un `vu` différent. Le journal y voit deux contenus de même identité : une **anomalie** sort, et une copie de la même écriture part aux écartées. Les valeurs sont égales, donc il n'y a pas de conflit, mais le signalement est faux. Ce cas ne se produit qu'aux frontières de désérialisation, qui sont précisément le contrat donné à ST-02.
+
+### [MINEUR] F-10 : « concaténation des `nouveaux_conflits` = `conflits()` » ne précise pas l'égalité
+- **Axe** : Cohérence
+- **Source** : T-7, propriété « concurrentes ⇔ conflit » ; A-4 (chaque `Rapport` est trié pour lui-même)
 - **Tâche(s) concernée(s)** : T-7
-- **Description** : quand tout l'historique arrive dans un seul lot (première synchronisation, import ST-04b), « nouvelle × portée » vaut n². Avec les 10 000 écritures du cas 8 sur un champ, cela fait 10^8 paires, en debug, à chaque mutant.
-- **Preuve** : le raccourci ne gagne que sur des lots petits devant le journal.
+- **Description** : une concaténation de listes triées séparément n'est pas triée. Comparée en `Vec`, la propriété échoue dès que deux fusions produisent des conflits dans le désordre global. L'égalité attendue est ensembliste, mais le critère ne le dit pas.
+- **Preuve** : la fusion 1 rend un conflit sur `d2`, puis la fusion 2 un conflit sur `d1`. La concaténation vaut `[d2, d1]`, alors que `conflits()` rend `[d1, d2]`.
 
 ## Axes sans faille détectée
-- **Régressions** : RAS. Rien n'est publié ni persisté. Le retrait de `chrono` dans la CLI et le remplacement du code de démonstration n'ont aucun consommateur.
-- **Complétude des matrices** : hors F-2 et F-19, chaque cas des matrices US-1 à US-5, US-7 et US-8 a une tâche qui le nomme. Le tableau des invariants est complet.
-- **Over-engineering** : RAS hors F-20. Les trois simplifications de l'analyse pré-plan (pas d'objet réseau, pas de test multiprocessus, pas de profil anticipé) sont justifiées. La seconde dépend toutefois de F-7.
+- **Complétude** : RAS. Chaque cas des matrices US-1 à US-8 a une tâche qui le nomme (seuls les cas 5 et 6 de la matrice US-8 sont couverts par le contenu de T-2 sans être cités). Le tableau des invariants est complet.
+- **Cohérence du moteur** : RAS. Avec `vu` par visée, le journal porteur d'horloge, les collisions gardées et l'intervalle d'A-10, aucun contre-exemple de perte silencieuse hors de la limite arbitrée. `vu < marque` est tenu par construction, puisque l'horloge adopte le maximum de tout lot accepté et que toute émission locale passe par `ecrire`.
+- **Régressions** : RAS. Rien n'est publié ni persisté. La CLI n'a aucun consommateur.
 
 ## Recommandation
-- **F-1 → Spécificateur, Architecte, puis Quentin.** La règle arbitrée (portée d'une marque unique `vu`) est réfutée par le contre-exemple. Le Planner ne peut pas la corriger seul.
-- **F-2 à F-10 → Planner**, avant le Skeleton. F-5 et F-6 touchent aussi le texte de l'archi.
-- **MINEURS** : à traiter au fil de l'eau.
-- Itération DA suivante après correction.
+- **F-1 à F-3 → Planner**, avant le Skeleton. F-1 touche le périmètre de l'arbitrage F-9 et peut remonter à Quentin, si la fermer demande de sortir du « garde-fou contre la dérive ». F-3 est un écart à l'archi.
+- **MINEURS** : à traiter au fil de l'eau. F-5 se corrige à l'écriture de T-14, et F-6 par un amendement d'une ligne.
+- C'était l'itération 2 sur 3. Aucun BLOQUANT : le plan peut passer au Skeleton une fois les MAJEURS corrigés, sans nouvelle itération DA si la correction ne touche pas le moteur.

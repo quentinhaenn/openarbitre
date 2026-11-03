@@ -609,3 +609,8 @@ Chaque recommandation est retenue par défaut si Quentin ne dit rien.
 
 - **Q-3 → oui aux deux** : le `Journal` porte l'horloge (`ecrire` et `fusionner` seuls chemins) ; une collision d'identité garde tous les contenus, l'anomalie est une fonction de `S`, et deux contenus de valeurs différentes forment aussi un conflit.
 - **Q-4 à Q-10 → validés en bloc**, selon les recommandations du tableau ci-dessus.
+
+## Arbitrages de Quentin sur le DA v2 (2026-11-03)
+
+- **DA v2 F-1 → juge séparé, exécuté depuis `main`.** Workflow `juge.yml` sur `pull_request_target` (types incluant `labeled`/`unlabeled`) : workflow et scripts pris sur la base, **aucun code de la PR exécuté** ; il lit la liste des fichiers modifiés et les `zones.toml` de la tête comme données. Protège tout `.github/` et tout `scripts/`, ajouts compris, et la zone effective de chaque fichier existant (rouge si elle baisse entre base et tête, ce qui ferme aussi DA v2 F-2). Toute modification protégée exige le label `ci-change`, posé par Quentin seul. `juge` est un check requis à côté de `ci`. Remplace `05-st01-juge.sh` d'A-8. Écart accepté à AC-6.6 : ajouter une vérification dans `ci.d/` passe par le label.
+- **Suite** : plan v3 léger (DA v2 F-1 à F-3 et mineurs F-4 à F-10, sans toucher au moteur), puis Skeleton sans itération DA 3, conformément à la recommandation du DA v2.
