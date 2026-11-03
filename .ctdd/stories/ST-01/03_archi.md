@@ -410,3 +410,4 @@ Elles sont déclarées dans `[workspace.dependencies]` (AC-8.3), même inutilis�
 - **Amendé par le plan (Q-2) :** minimum Python porté à 3.13 pour `full_match`.
 - **DA itération 1, F-1 → `vu : BTreeMap<Cible, Marque>`** (voir l'arbitrage F-1 de `02_specs.md`), en remplacement de `vu : Option<Marque>` ; `vu_pour` rend cette table. `vu < marque` s'applique à chaque entrée.
 - **Passe de simplification (2026-11-03).** Avant la review (phase 8), une passe `/simplify` ou `/ponytail-review` sur le diff de la story retire ce qui n'est pas nécessaire. Pour toutes les stories.
+- **Amendements A-1 à A-11 du plan v2 (`04_plan.md`, « Amendements à l'archi ») acceptés le 2026-11-03.** Ils remplacent les passages qu'ils citent ; en cas d'écart, ils font foi sur le corps de ce document.
