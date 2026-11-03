@@ -1,0 +1,3 @@
+[[equivalent]]
+mutant = "crates/core/src/merge.rs:404:69: replace > with >= in Log::conflicts_of"
+justification = "The two versions differ only when rank(w) == rank(x). rank = (stamp, target, value, seen, author) determines the whole Write (record is in target; change is deduced from kind and value, as in to_write): equal ranks ⇒ x == w. That case exits at `x == w` (continue) before the comparison: unreachable branch. Proof: 07_review.md, survivors table."

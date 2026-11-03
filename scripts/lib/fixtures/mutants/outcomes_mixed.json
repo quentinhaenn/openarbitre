@@ -1,0 +1,188 @@
+{
+ "outcomes": [
+  {
+   "scenario": "Baseline",
+   "summary": "Success"
+  },
+  {
+   "scenario": {
+    "Mutant": {
+     "name": "src/lib.rs:2:32: replace bound -> bool with true",
+     "package": "mini",
+     "file": "src/lib.rs",
+     "function": {
+      "function_name": "bound",
+      "return_type": "-> bool",
+      "span": {
+       "start": {
+        "line": 2,
+        "column": 1
+       },
+       "end": {
+        "line": 2,
+        "column": 40
+       }
+      }
+     },
+     "span": {
+      "start": {
+       "line": 2,
+       "column": 32
+      },
+      "end": {
+       "line": 2,
+       "column": 38
+      }
+     },
+     "replacement": "true",
+     "genre": "FnValue"
+    }
+   },
+   "summary": "MissedMutant"
+  },
+  {
+   "scenario": {
+    "Mutant": {
+     "name": "src/lib.rs:2:34: replace < with <= in bound",
+     "package": "mini",
+     "file": "src/lib.rs",
+     "function": {
+      "function_name": "bound",
+      "return_type": "-> bool",
+      "span": {
+       "start": {
+        "line": 2,
+        "column": 1
+       },
+       "end": {
+        "line": 2,
+        "column": 40
+       }
+      }
+     },
+     "span": {
+      "start": {
+       "line": 2,
+       "column": 34
+      },
+      "end": {
+       "line": 2,
+       "column": 35
+      }
+     },
+     "replacement": "<=",
+     "genre": "BinaryOperator"
+    }
+   },
+   "summary": "MissedMutant"
+  },
+  {
+   "scenario": {
+    "Mutant": {
+     "name": "src/lib.rs:1:44: replace + with - in j",
+     "package": "mini2",
+     "file": "src/lib.rs",
+     "function": {
+      "function_name": "j",
+      "return_type": "-> String",
+      "span": {
+       "start": {
+        "line": 1,
+        "column": 1
+       },
+       "end": {
+        "line": 1,
+        "column": 49
+       }
+      }
+     },
+     "span": {
+      "start": {
+       "line": 1,
+       "column": 44
+      },
+      "end": {
+       "line": 1,
+       "column": 45
+      }
+     },
+     "replacement": "-",
+     "genre": "BinaryOperator"
+    }
+   },
+   "summary": "Unviable"
+  },
+  {
+   "scenario": {
+    "Mutant": {
+     "name": "src/lib.rs:1:44: replace + with * in j",
+     "package": "mini2",
+     "file": "src/lib.rs",
+     "function": {
+      "function_name": "j",
+      "return_type": "-> String",
+      "span": {
+       "start": {
+        "line": 1,
+        "column": 1
+       },
+       "end": {
+        "line": 1,
+        "column": 49
+       }
+      }
+     },
+     "span": {
+      "start": {
+       "line": 1,
+       "column": 44
+      },
+      "end": {
+       "line": 1,
+       "column": 45
+      }
+     },
+     "replacement": "*",
+     "genre": "BinaryOperator"
+    }
+   },
+   "summary": "Unviable"
+  },
+  {
+   "scenario": {
+    "Mutant": {
+     "name": "src/lib.rs:2:53: replace += with *= in spin",
+     "package": "mini2",
+     "file": "src/lib.rs",
+     "function": {
+      "function_name": "spin",
+      "return_type": "-> u32",
+      "span": {
+       "start": {
+        "line": 2,
+        "column": 1
+       },
+       "end": {
+        "line": 2,
+        "column": 64
+       }
+      }
+     },
+     "span": {
+      "start": {
+       "line": 2,
+       "column": 53
+      },
+      "end": {
+       "line": 2,
+       "column": 55
+      }
+     },
+     "replacement": "*=",
+     "genre": "BinaryOperator"
+    }
+   },
+   "summary": "Timeout"
+  }
+ ]
+}

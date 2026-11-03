@@ -1,0 +1,30 @@
+# Judge: runs main's code only, reads the PR as data (A-8, T-11).
+# Never check out the PR head: pull_request_target (R-11)
+name: judge
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+permissions:
+  contents: read
+jobs:
+  judge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # full_match requires Python ≥ 3.13 (Q-2).
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - name: PR head in the object database only
+        run: git fetch origin "refs/pull/$NUMBER/head"
+        env:
+          NUMBER: ${{ github.event.pull_request.number }}
+      - name: scripts/lib/judge.py
+        run: python3 scripts/lib/judge.py "$BASE" "$HEAD"
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          CI_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}

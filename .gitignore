@@ -1,3 +1,4 @@
 /target
+__pycache__/
 .ctdd/cadre/inputs/
 .claude/

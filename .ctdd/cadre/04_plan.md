@@ -814,3 +814,10 @@ PL-5 est retiré : la résolution par défaut de CONFLIT-17 s'applique, et elle 
 | PROP-22 | ST-29 | Hébergeur simulé |
 | C-2.9 | ST-20 | Acceptation manuelle iOS et Android |
 | Seuils de mutation | ST-01 (outil), chaque review de story | `cargo mutants --in-diff`, seuil de la zone lue dans `zones.toml` de la story, Full par défaut (F-36) |
+
+## Arbitrage de Quentin : Rust premier langage de decision diff (2026-11-03)
+
+- **Rust en premier, Python juste après.** Le premier extracteur de decision diff est tree-sitter-rust, appliqué au développement d'OpenArbitre lui-même (dogfooding dès la première story de la voie D). L'extracteur Python (S4 : parseur de Ruff ou tree-sitter-python) devient la story suivante.
+- **Conséquences, à découper au cycle de ST-22** : ST-22 = extracteur Rust + fichier d'invariants d'OpenArbitre (migration des règles de source de `graphe.py` ; les règles du graphe Cargo restent hors AST) vérifié par le juge avec le binaire de `main`, jamais celui de la PR. S4 passe juste avant l'extracteur Python. Essais OSS et démo glissent d'une story.
+- **Condition** : le port `Extracteur` est neutre en langage dès le premier ; à vérifier au cycle de ST-22.
+- Raison : decision diff est d'abord un besoin personnel ; l'outil qui juge ses propres PR est son meilleur test, au prix d'une story de retard sur la validation externe.
