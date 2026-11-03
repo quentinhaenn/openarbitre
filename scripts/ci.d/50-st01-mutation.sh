@@ -31,8 +31,9 @@ if [ -s "$CI_OUT/diff.patch" ]; then
     exit 1
     ;;
   esac
-  if [ ! -f "$CI_OUT/mutants.out/outcomes.json" ]; then
-    echo "50-st01-mutation : outcomes.json absent" >&2
+  # Code 0 sans outcomes.json : le diff ne touche aucune source Rust (« Diff changes no Rust source files »), neutre.
+  if [ $code -ne 0 ] && [ ! -f "$CI_OUT/mutants.out/outcomes.json" ]; then
+    echo "50-st01-mutation : outcomes.json absent (code $code)" >&2
     exit 1
   fi
 fi
