@@ -327,6 +327,22 @@ fn qa_guard_two_contents_of_a_local_identity_in_the_batch() {
     );
 }
 
+/// Q-A guard: the reported index is the write sharing target **and** stamp, not just one of them.
+#[test]
+fn qa_guard_index_needs_target_and_stamp_both() {
+    let stored = write(record("r"), field("f", "a"), stamp(10, 0, D));
+    let reused = write(record("r"), field("f", "b"), stamp(10, 0, D));
+    let same_target = write(record("r"), field("f", "x"), stamp(11, 0, PEER));
+    let same_stamp = write(record("s"), field("f", "y"), stamp(10, 0, D));
+    for first in [same_target, same_stamp] {
+        let mut log = rebuild(dev(D), k(10, 0), std::slice::from_ref(&stored)).unwrap();
+        assert_eq!(
+            receive(dev(D), &mut log, k(10, 0), &[first, reused.clone()]).err(),
+            Some(Rejection::LocalIdentityReused { index: 1 })
+        );
+    }
+}
+
 /// A local-device write with an unknown identity is accepted (re-receiving after a loss).
 #[test]
 fn qa_guard_unknown_local_identity_is_accepted() {
