@@ -56,6 +56,21 @@ Everything public in this repository is written in English: code, comments, mess
 | filigrane (par pair) | `Watermark`, `Store::watermark`, `Store::advance_watermark` |
 | état d'horloge | `ClockState` |
 | `StockagePlein` / `Corrompu` / `Indisponible` | `StoreError::StorageFull` / `Corrupted` / `Unavailable` |
+| action | `ActionDescriptor` (name, summary, input and output schema, `mutating`, `logged_as`, `requires_network`); one operation of a module, exposed by every surface |
+| action name, command path | dot-separated name, first segment = module id; command path = its words after `arbitre` (the reserved `arbitre` segment dropped) |
+| group | a command path that is a strict prefix of an action's path |
+| catalogue | `Catalog`: the validated descriptors of every wired module, built once per process |
+| schema, property | `Schema` (JSON Schema subset, RG-ST03-4.3), `Property` (one command-line option in an input) |
+| valeur structurée | `Value` (`Bool`, `Int`, `Str`, `List`, `Object`; no null, no float), `value::Value`; the root `Value` is `write::Value` |
+| JSON canonique | `encode`: sorted keys, no whitespace, fixed escaping |
+| sortie | `Output` (= `Value`), human text from `render` |
+| catégorie | `Category` (`Success`, `Refusal`, `Usage`, `ToolError`, `ModuleNotEnabled`), `exit_code`, `json_name` |
+| erreur d'action | `ActionError` (`category`, `id`, `message`, optional `data`) |
+| identifiant d'erreur | error id: stable `snake_case` string (`unknown_argument`, `storage_busy`) |
+| document résultat | result document: the one JSON object of `--json`, built by `document` |
+| mode JSON | JSON mode: a command run with `--json` |
+| emplacement du magasin | store location: `--store`, `ARBITRE_STORE`, platform default |
+| module de test | test module: `test` actions, feature `test-actions`, never shipped |
 
 ## `Cargo.lock`
 
