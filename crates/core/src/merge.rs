@@ -149,7 +149,6 @@ impl Log {
     }
 
     /// Empty log driven by a restored clock (GAP-ST02-1, used by `store::rebuild`).
-    #[expect(dead_code, reason = "called by store::rebuild from T-4")]
     pub(crate) fn with_clock(clock: HybridClock) -> Self {
         Self {
             clock,
