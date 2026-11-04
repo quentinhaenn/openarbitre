@@ -723,3 +723,8 @@ fn required_sorted_by_name() {
     let e = encode(&d.input_json_schema());
     assert!(e.contains(r#""required":["alpha","zeta"]"#), "{e}");
 }
+
+#[test]
+fn duplicate_module_id_is_refused() {
+    refused(&[("m", vec![action("m.a")]), ("m", vec![action("m.b")])], &["\"m\"", "twice"]);
+}

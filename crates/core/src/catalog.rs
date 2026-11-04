@@ -192,8 +192,14 @@ impl Catalog {
     pub fn build(modules: &[(&str, Vec<ActionDescriptor>)]) -> Result<Catalog, CatalogError> {
         let mut names: BTreeMap<&str, &str> = BTreeMap::new();
         let mut paths: BTreeMap<Vec<&str>, &str> = BTreeMap::new();
+        let mut ids = BTreeSet::new();
         let mut actions = Vec::new();
         for (module, list) in modules {
+            if !ids.insert(module) {
+                return Err(CatalogError {
+                    message: format!("module id {module:?} given twice"),
+                });
+            }
             for a in list {
                 let err = |m: String| CatalogError {
                     message: format!("action {:?} (module {module}): {m}", a.name),
