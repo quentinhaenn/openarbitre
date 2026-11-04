@@ -2,7 +2,7 @@
 
 use std::cell::RefCell;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use std::collections::BTreeSet;
 
@@ -100,6 +100,20 @@ impl SqliteStore {
     /// Opens or creates the store at `path` (archi "Open sequence", P-10 open-time check).
     /// Writes nothing unless creating.
     pub fn open(path: &Path, options: &Options) -> Result<Self, StoreError> {
+        // `SQLITE_BUSY` can skip the busy handler while another process creates the store or
+        // switches it to WAL (plan R-9): retry the whole sequence until `wait` elapses.
+        let deadline = Instant::now() + options.wait;
+        loop {
+            match Self::open_once(path, options) {
+                Err(StoreError::Unavailable(Cause::Busy)) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+                other => return other,
+            }
+        }
+    }
+
+    fn open_once(path: &Path, options: &Options) -> Result<Self, StoreError> {
         let flags = OpenFlags::default();
         let mut conn = match &options.vfs {
             Some(vfs) => Connection::open_with_flags_and_vfs(path, flags, vfs.as_str()),
@@ -122,6 +136,7 @@ impl SqliteStore {
                 None => inspect(&mut conn)?.ok_or(StoreError::Corrupted(Damage::Layout))?,
             },
         };
+        wal(&conn)?;
         Ok(Self {
             conn: RefCell::new(conn),
             device,
@@ -220,10 +235,15 @@ fn inspect(conn: &mut Connection) -> Result<Option<DeviceId>, StoreError> {
     Ok(Some(DeviceId(device)))
 }
 
-/// Open sequence step 2. `None` = another process created the store first.
-fn create(conn: &mut Connection) -> Result<Option<DeviceId>, StoreError> {
+/// WAL switch at every open (no-op when already WAL; plan R-9, F-21).
+fn wal(conn: &Connection) -> Result<(), StoreError> {
     conn.pragma_update_and_check(None, "journal_mode", "WAL", |r| r.get::<_, String>(0))
         .map_err(map)?;
+    Ok(())
+}
+
+/// Open sequence step 2. `None` = another process created the store first.
+fn create(conn: &mut Connection) -> Result<Option<DeviceId>, StoreError> {
     let tx = Transaction::new(conn, TransactionBehavior::Immediate).map_err(map)?;
     let n: i64 = tx
         .query_row("SELECT count(*) FROM sqlite_schema", [], |r| r.get(0))
