@@ -26,8 +26,8 @@ use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
 use arbitre_core::{
-    Author, Change, DeviceId, Field, LocalChange, Position, RecordId, Seen, Stamp, Store, Value,
-    Write,
+    Author, Change, DeviceId, Field, FieldValue, LocalChange, Position, RecordId, Seen, Stamp,
+    Store, Write,
 };
 use arbitre_sqlite::{Options, SqliteStore};
 
@@ -85,7 +85,7 @@ pub fn rec(category: &str, id: &str) -> RecordId {
 pub fn field_change(field: &str, value: &[u8]) -> Change {
     Change::Field {
         name: Field(field.into()),
-        value: Value(value.to_vec()),
+        value: FieldValue(value.to_vec()),
     }
 }
 

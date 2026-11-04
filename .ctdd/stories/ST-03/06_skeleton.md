@@ -48,7 +48,7 @@ Total: 93 new tests, all red. ST-01/ST-02 suites unchanged and green.
 
 ## Decisions taken here (for Quentin)
 
-1. **`Value` name clash.** Core already has `write::Value(Vec<u8>)` re-exported at the root. The new `Value` stays at `arbitre_core::value::Value` (`pub mod value`); the root re-exports `Output`, `encode`, `render` only. Renaming the ST-01 type (e.g. `Bytes`) is a foundation amendment; ST-04 freezes the Rust types, so decide before then.
+1. **`Value` name clash — resolved.** Quentin chose (c) on 2026-11-04: ST-01's `write::Value` is renamed `FieldValue` (foundation amendment); the new `Value` is re-exported at the crate root with `Output`, `encode`, `render`.
 2. **Booleans and lists are declared `required: true`.** RG-ST03-4.6 refuses "optional boolean / optional list" and RG-ST03-4.4 wants them always present, so `required: false` on them is refused. On the command line they stay optional (absent = `false` / `[]`). In the JSON Schema form they are listed in `required`.
 3. **JSON Schema form fixed by goldens**: objects always carry `additionalProperties:false`, `properties`, `required` (sorted by name, possibly empty), `type`. Each property carries `description`. Enum values stay in declaration order. List `items` have no description.
 4. **`ActionError` fields private**, so `Success` cannot be represented (RG-ST03-3.4). Constructors, `with_data` and accessors are written in full (plain field init, no logic), so T-3/T-4/T-5 do not wait on T-2.

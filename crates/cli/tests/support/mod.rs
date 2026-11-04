@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::{Context, Poll, Waker};
 
 use arbitre_core::{
-    Author, Change, DeviceId, Field, LocalChange, Position, RecordId, Store, Value, Write,
+    Author, Change, DeviceId, Field, FieldValue, LocalChange, Position, RecordId, Store, Write,
 };
 use arbitre_sqlite::{Options, SqliteStore};
 
@@ -124,7 +124,7 @@ pub fn populate(path: &Path) {
         },
         change: Change::Field {
             name: Field("v".into()),
-            value: Value(id.as_bytes().to_vec()),
+            value: FieldValue(id.as_bytes().to_vec()),
         },
         author: Author::System,
     };

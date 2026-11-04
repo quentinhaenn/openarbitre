@@ -273,3 +273,4 @@ Binding.
 - **Q-P4 (a)**: `output_failed` after a commit is a documented exception to "nothing changes on failure" (README).
 - **Q-DA1 (a)**: the failure document gets an optional `data` key; `ActionError` gains an optional `Value`, rendered on stderr in human mode.
 - **Q-DA2 (a)**: ST-04's signals go to stderr in both modes, outside INV-13, only for well-formed actions; no ST-03 code change.
+- **Value name clash → (c)**: rename ST-01's `write::Value` to `FieldValue` (foundation amendment, Quentin 2026-11-04).

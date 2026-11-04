@@ -5,8 +5,8 @@ use std::collections::BTreeSet;
 
 use arbitre_core::value::Value;
 use arbitre_core::{
-    ActionDescriptor, ActionError, Change, Field, LocalChange, LoggedAs, Position, Property,
-    RecordId, Schema, Store, Value as WriteValue,
+    ActionDescriptor, ActionError, Change, Field, FieldValue, LocalChange, LoggedAs, Position,
+    Property, RecordId, Schema, Store,
 };
 
 use super::{Context, Wiring};
@@ -243,7 +243,7 @@ fn write(input: &Value, ctx: &Context<'_>) -> Result<Value, ActionError> {
         },
         change: Change::Field {
             name: Field("v".into()),
-            value: WriteValue(key.as_bytes().to_vec()),
+            value: FieldValue(key.as_bytes().to_vec()),
         },
         author: ctx.author,
     };

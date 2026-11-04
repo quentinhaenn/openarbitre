@@ -78,8 +78,8 @@ impl Pools {
     fn field(&self, n: usize) -> Field {
         Field(self.fields[n % 3].clone())
     }
-    fn value(&self, n: u8) -> Value {
-        Value(self.values[n as usize % 3].clone())
+    fn value(&self, n: u8) -> FieldValue {
+        FieldValue(self.values[n as usize % 3].clone())
     }
 }
 
@@ -200,7 +200,7 @@ fn local_changes(p: &Pools, cs: &[(u8, u8, u8, u8)]) -> Vec<LocalChange> {
                 24..29 => Change::Delete,
                 _ => Change::Field {
                     name: Field(String::new()),
-                    value: Value(vec![]),
+                    value: FieldValue(vec![]),
                 },
             },
             author: AUTHORS[author as usize % 4],
@@ -505,7 +505,7 @@ fn put(id: &str, name: &str, value: &[u8]) -> LocalChange {
         record: rid(id),
         change: Change::Field {
             name: Field(name.into()),
-            value: Value(value.to_vec()),
+            value: FieldValue(value.to_vec()),
         },
         author: Author::CliUser,
     }

@@ -61,7 +61,7 @@ Everything public in this repository is written in English: code, comments, mess
 | group | a command path that is a strict prefix of an action's path |
 | catalogue | `Catalog`: the validated descriptors of every wired module, built once per process |
 | schema, property | `Schema` (JSON Schema subset, RG-ST03-4.3), `Property` (one command-line option in an input) |
-| valeur structurée | `Value` (`Bool`, `Int`, `Str`, `List`, `Object`; no null, no float), `value::Value`; the root `Value` is `write::Value` |
+| valeur structurée | `Value` (`Bool`, `Int`, `Str`, `List`, `Object`; no null, no float), `arbitre_core::Value` (re-exported from `value`); the ST-01 raw field value is `FieldValue` |
 | JSON canonique | `encode`: sorted keys, no whitespace, fixed escaping |
 | sortie | `Output` (= `Value`), human text from `render` |
 | catégorie | `Category` (`Success`, `Refusal`, `Usage`, `ToolError`, `ModuleNotEnabled`), `exit_code`, `json_name` |

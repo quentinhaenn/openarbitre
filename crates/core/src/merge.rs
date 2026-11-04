@@ -7,8 +7,8 @@ use core::ops::Bound;
 
 use crate::hlc::{ClockExhausted, DeviceId, HybridClock, Stamp};
 use crate::write::{
-    Author, BatchError, Change, Field, Reason, RecordId, Seen, Target, TargetKind, Value, Write,
-    identifiers_non_empty, validate,
+    Author, BatchError, Change, Field, FieldValue, Reason, RecordId, Seen, Target, TargetKind,
+    Write, identifiers_non_empty, validate,
 };
 
 const STAMP_MIN: Stamp = Stamp {
@@ -18,7 +18,7 @@ const STAMP_MIN: Stamp = Stamp {
 };
 
 /// Rank of a write `(stamp, target, content)` (A-3).
-fn rank(w: &Write) -> (Stamp, Target, Option<&Value>, &Seen, Author) {
+fn rank(w: &Write) -> (Stamp, Target, Option<&FieldValue>, &Seen, Author) {
     let value = match &w.change {
         Change::Field { value, .. } => Some(value),
         Change::Delete => None,
@@ -72,7 +72,7 @@ fn retained(state: &RecordState, w: &Write) -> bool {
 /// Content of an identity `(target, stamp)`: `(value?, seen, author)` (A-3).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Content {
-    pub value: Option<Value>,
+    pub value: Option<FieldValue>,
     pub seen: Seen,
     pub author: Author,
 }
