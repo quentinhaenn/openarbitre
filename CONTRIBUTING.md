@@ -2,6 +2,16 @@
 
 The rules below come from ST-01 (`.ctdd/stories/ST-01/`). Changing them is a **foundation amendment**.
 
+## AI-assisted contributions
+
+This project was developed with generative AI, and AI-assisted contributions are welcome on three conditions:
+
+1. The change passes every quality gate: `ci` (tests, mutation testing) and `judge`.
+2. You can explain the code you submit and the main trade-offs it makes, as if you had written it yourself.
+3. For critical components (zone `Full`: the merge engine, cryptography, security), you can also explain the implementation details.
+
+You remain responsible for the code you submit, whoever or whatever wrote it.
+
 ## Branches and PRs
 
 - `main` is protected: every change goes through a PR, `.ctdd/` included.
