@@ -202,3 +202,10 @@ Questions marked **[FREEZES]** fix a part of the shared contract; reopening them
 - (a) Human rendering is a function of the structured value only, plus a property test that every value of the structured output appears in the human text.
 - (b) Construction only (no property test).
 - **Recommendation: (a).** Construction prevents adding information to the human side; only the test catches information dropped from it.
+
+## Quentin's arbitrations (2026-11-04)
+
+- Q-1 (a), Q-2 (a), Q-3 (a), Q-4 (a), Q-5 (a), Q-6 (b) free depth, Q-7 (a), Q-9 (a): recommendations accepted.
+- Q-8: **open.** Quentin asks whether a deterministic, AI-free subset can run the morning recalculation. Framing answer: yes, the deterministic proposal is the baseline (`.ctdd/cadre/04_plan.md`: "La proposition déterministe (ST-05, ST-08) suffit"), so ST-11 needs only `calendar`. Proposed reading, pending confirmation: `requires_network` lists what an action **cannot complete without**; an optional AI improvement is a degradation path, not a requirement. Specs proceed on the set (a) with that meaning, revisable.
+- Cross-story (spike S5, accepted): MCP tool names are the action path with `.` replaced by `_` (e.g. `module_enable`); concurrent MCP calls are serialised behind a local mutex.
+- Cycle: N = 3 concurrent cycles from 2026-11-04 (Quentin), still at most one strong cycle.
