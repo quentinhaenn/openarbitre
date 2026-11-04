@@ -5,7 +5,7 @@
 - Frame: `.ctdd/cadre/02_specs.md` RG-3.2 to 3.5, RG-3.7, RG-15.6, INV-12, 13, 14, AMB-16, CONFLIT-6; `.ctdd/cadre/03_archi.md` ("Action catalogue", `DescripteurAction`, `Sortie`, "error category → exit code", target tree); `.ctdd/cadre/04_plan.md` § ST-03, § ST-04, F-6, F-11, F-20, F-37, F-38, § Collisions.
 - Spike S5 (accepted): MCP through `rmcp` 3.8.0 (`local` feature); tools built at runtime with `Tool::new(name, description, json_schema)`; MCP tool name = action path with `.` → `_`; calls serialised behind a mutex. MCP itself is ST-07.
 - ST-02 deliverable (PR #6, `st-02/store`, open at the time of writing): `arbitre_core::Store`, `StoreError` (`StorageFull`, `Corrupted(Damage)`, `Unavailable(Cause)`), `ApplyError`, `arbitre_sqlite::SqliteStore::open(path, &Options)` (creates the store if absent).
-- Date: 2026-11-04 · Status: DRAFT
+- Date: 2026-11-04 · Status: v2 (DA iteration 1 folded: F-1, F-2, F-3, F-6; Q-DA1 (a), Q-DA2 (a))
 - Codebase context (read 2026-11-04): `arbitre-core` is `#![no_std]` + `alloc` with **no normal dependency**; `arbitre` (`crates/cli`) has only `clap` 4.6.7 (`derive`) and a 3-line `main.rs`. `serde`, `serde_json`, `tokio` are declared shared in `[workspace.dependencies]` but used by no crate yet.
 
 ### Conventions
@@ -33,9 +33,9 @@ Terms of `CONTRIBUTING.md` keep their meaning. New terms (to add to the glossary
 | Property | A named field of an object schema; in an input, one command-line option. |
 | `Value` | A structured value: boolean, integer, string, list, object. No null, no floating-point number. |
 | Canonical JSON | The single byte encoding of a `Value` fixed by RG-ST03-2.4. |
-| `Output` | The success result of an action: a `Value` conforming to the output schema, plus its derived human rendering. |
+| `Output` | The success result of an action: a `Value` conforming to the output schema, plus its derived human rendering. In code, `pub type Output = Value;` (no separate type). |
 | `Category` | The kind of an outcome: `Success`, `Refusal`, `Usage`, `ToolError`, `ModuleNotEnabled`. Each has one exit code. |
-| `ActionError` | A failure: a non-success category, a stable error id and an English message. |
+| `ActionError` | A failure: a non-success category, a stable error id, an English message and optional structured details (a `Value`, the failure document's `data`). |
 | Error id | Stable `snake_case` identifier of a failure (`unknown_argument`, `storage_busy`). Scripts may rely on it; the message is not stable. |
 | Result document | The single JSON document written on standard output in JSON mode, for every outcome. |
 | JSON mode | A command run with `--json`. Human mode otherwise. |
@@ -105,13 +105,13 @@ Terms of `CONTRIBUTING.md` keep their meaning. New terms (to add to the glossary
 - **Post-conditions:** standard output receives exactly one result document followed by one `\n`, and nothing else, for **every** outcome: success, each failure category, help, version, a caught crash (RG-ST03-3.5). Diagnostics, progress and panic messages go to standard error only.
 - **Formal expression (frozen shape):**
   - success: `{"data":<Value>,"format":1,"ok":true}`
-  - failure: `{"error":{"category":<c>,"code":<n>,"id":<id>,"message":<text>},"format":1,"ok":false}`
+  - failure: `{"data":<Value>,"error":{"category":<c>,"code":<n>,"id":<id>,"message":<text>},"format":1,"ok":false}`, where `data` is **optional**: present only when the action attaches structured details to its failure (for example ST-22's violations, ST-05's refused item), absent otherwise [ARB Q-DA1 (a)]
   - `c ∈ {"refusal","usage","tool_error","module_not_enabled"}`, `n` = exit code of `c` (RG-ST03-3.1), `id` matches `[a-z][a-z0-9_]*`.
   - Keys appear in canonical order (shown above). `format` is `1` until a foundation amendment.
 - **Error cases:** standard output cannot be written (closed pipe) → exit 3; see `CONFLICT-ST03-3`.
 
 **RG-ST03-2.2: Human mode streams** `@Invariant` [ARB Q-4 (a)]
-- **Post-conditions:** success → the human rendering on standard output; failure → `error: <message>` (plus usage for a usage error) on standard error, nothing on standard output.
+- **Post-conditions:** success → the human rendering on standard output; failure → `error: <message>` (plus usage for a usage error), then the human rendering of the failure's `data` if present (RG-ST03-2.3), on standard error, nothing on standard output [ARB Q-DA1 (a)].
 
 **RG-ST03-2.3: The human rendering is a function of the structured value** `@Invariant` + `@Property` [ARB Q-9 (a), frame INV-13]
 - **AC ref:** [US-2/AC-2.2], [US-4/AC-4.3]
@@ -142,7 +142,7 @@ Terms of `CONTRIBUTING.md` keep their meaning. New terms (to add to the glossary
 | 3 | Empty list | Edge | `test echo` without `--tag` | `"tags":[]`, exit 0 | 2.1, 4.4 |
 | 4 | Free text | Edge | `--text` with `\n`, `"`, `\`, U+0001, `é`, `日本` | valid JSON, escaping per 2.4; human text contains the string verbatim | 2.3, 2.4 |
 | 5 | Pure command | Edge | `arbitre test noop --json` | `{"data":{},"format":1,"ok":true}`; human mode prints nothing; exit 0 | 2.1, 4.5 |
-| 6 | Failure in JSON | Error | `arbitre test refuse --json` | `ok:false`, category `refusal`, code 1, id, message; nothing else on stdout | 2.1 |
+| 6 | Failure in JSON | Error | `arbitre test refuse --json` (attaches details `{"item":"x"}`) | `ok:false`, category `refusal`, code 1, id, message, `data` = the details; nothing else on stdout. Human mode: `error:` line then `item: x` on stderr. `test fail --json` (no details) has no `data` key | 2.1, 2.2 |
 | 7 | Diagnostics | Edge | `arbitre test noisy --json` (writes to stderr) | stdout parses as one document | 2.1 |
 | 8 | Same bytes | Edge | case 1 twice, keys inserted in different orders by the action | identical stdout bytes | 2.4 |
 
@@ -213,8 +213,8 @@ Terms of `CONTRIBUTING.md` keep their meaning. New terms (to add to the glossary
 | 5 | Module not enabled | Error | `arbitre test not-enabled` | 4 | 3.1 |
 | 6 | Each of 1–5 with `--json` | — | — | same code; document's `code` = exit code | 3.2 |
 | 7 | Crash | Error | `arbitre test panic` (± `--json`) | 3, id `internal_error` | 3.5 |
-| 8 | Store busy | Error | `test write` while another process holds a write transaction past the wait | 3, id `storage_busy` | 3.3 |
-| 9 | Store damaged / newer layout | Error | `test noop` on a text file / a newer layout | 3, `storage_corrupted` / `storage_incompatible_version`; file unchanged | 3.3, 5.3 |
+| 8 | Store busy | Error | `Unavailable(Busy)` from the store | 3, id `storage_busy`; covered by the mapping unit test (ST-02 owns the busy behaviour), no binary-level test | 3.3 |
+| 9 | Store damaged / newer layout | Error | `test read` on a text file / a newer layout | 3, `storage_corrupted` / `storage_incompatible_version`; file unchanged | 3.3, 5.3 |
 | 10 | Mutating action fails | Error | `test write --key k --fail refusal` (then `tool-error`, `panic`) | 1 / 3 / 3; store unchanged | 3.6 |
 | 11 | Success with remark | Edge | `test echo --text x` (data carries a `remark` field) | 0; remark in both outputs | 3.1, 2.3 |
 
@@ -299,6 +299,7 @@ Terms of `CONTRIBUTING.md` keep their meaning. New terms (to add to the glossary
 
 **RG-ST03-5.2: Opened once, after parsing, for actions only** `@Invariant` [HYP AC-1.3]
 - **Post-conditions:** the store is opened (and created with its missing parent directories if absent, ST-02 semantics) only when a well-formed command resolves to an action, before the action runs. One handle per process, ST-02 default options (5 s wait).
+- **Note:** "opened before every action" is behaviour of the provisional seam, not frozen (not in RG-ST03-G.2); ST-04's `Context` may open lazily (ST-22's `diff check` needs no store). No ST-03 test pins it on a pure action.
 
 **RG-ST03-5.3: An unopenable store changes nothing** `@Property` [AC-5.3]
 - **Post-conditions:** an opening failure is reported with the ids of RG-ST03-3.3, exit 3, and nothing is written (ST-02 RG-ST02-7.2, 7.3).
@@ -357,8 +358,8 @@ All in `crates/cli/tests/` (spawning the binary) unless noted; run by `10-st01-t
 
 | # | Test | Checks |
 |---|---|---|
-| E-ST03-1 | **Malformed commands** (property, 200 cases): from a well-formed `test write`/`test echo` command, apply one random defect (drop a required option, add an unknown option, unknown word, bad integer, out-of-range integer, non-existent or ill-shaped date, enum outside the list, repeated non-list option), ± `--json`, on (a) an absent store path and (b) a store with data. | exit 2; (a) path still absent; (b) store reads (`writes_since(START)`, `device`) identical; JSON mode: one document, `category` `usage` | 
-| E-ST03-2 | **Human/JSON equivalence** (property, 200 cases): random conforming inputs to `test echo`, including free text with control, quote and non-Latin characters. | same exit code; stdout of JSON mode parses (dev-dependency `serde_json`, shared) to the echoed value; every leaf appears in the human text | 
+| E-ST03-1 | **Malformed commands** (exhaustive enumeration, no random sampling): from a well-formed `test write`/`test echo` command, apply each defect (drop a required option, add an unknown option, unknown word, bad integer, out-of-range integer, non-existent or ill-shaped date, enum outside the list, repeated non-list option) × ± `--json` × store state: (a) an absent store path, (b) a store with data. | exit 2; (a) path still absent; (b) store reads (`writes_since(START)`, `device`) identical; JSON mode: one document, `category` `usage` | 
+| E-ST03-2 | **Human/JSON equivalence** (fixed cases: matrix US-2 rows 1–8; the random leaf property lives in core, on `render`). | same exit code; stdout of JSON mode parses (dev-dependency `serde_json`, shared) to the echoed value; every leaf appears in the human text | 
 | E-ST03-3 | **One code per category**: matrix US-3 rows 1–7, each in both modes. | exact exit code; document `code` = exit code; one document only | 
 | E-ST03-4 | **Nothing changes on failure**: `test write --fail refusal|tool-error|panic` on a store with data. | exit 1/3/3; store reads identical | 
 | E-ST03-5 | **Store location**: matrix US-5 rows 1–6 with a temporary `HOME`. | paths used/created as specified; errors and ids | 
@@ -375,7 +376,7 @@ All in `crates/cli/tests/` (spawning the binary) unless noted; run by `10-st01-t
 | ST-02 (`Store`, `StoreError`, `SqliteStore::open`) | Internal | Opening the store, local apply, reads for tests | Blocking (PR #6 to merge first) |
 | `clap` 4.6.7 (already in `arbitre`) | External | Runtime command tree, parsing, usage text | Blocking |
 | `serde_json` (shared, dev-dependency only) | External | Independent JSON parser in tests (E-ST03-2, 8) | Non-blocking |
-| `proptest` (shared, dev) | External | E-ST03-1, 2, 8 | Non-blocking |
+| `proptest` (shared, dev of `arbitre-core` only) | External | E-ST03-8, leaf property | Non-blocking |
 | Native physical clock | Internal | `pt` for `test.write`'s local apply (`SystemTime` in `arbitre`) | Blocking for `test.write` |
 | ST-04 | Downstream | `Module`, `Context`, enabling, RG-ST03-1.5 mechanism, per-module RG-ST03-3.6 check | — |
 | ST-07 | Downstream | Uses descriptor JSON Schema form and the `.`→`_` name rule unchanged | — |
@@ -388,7 +389,7 @@ All in `crates/cli/tests/` (spawning the binary) unless noted; run by `10-st01-t
 | [CONFLICT-ST03-2] | frame matrix US-3 row 4 ("invalid date → refusal") vs Q-3 (a) | The frame classes "31/02" as a refusal. | Q-3 (a) is binding: a non-existent date is **usage** (RG-ST03-1.2). The frame matrix is superseded on this point. |
 | [CONFLICT-ST03-3] | "nothing changes on failure" vs a closed standard output | A mutating action may commit, then the result cannot be written (`arbitre … --json | head -c1`). | Exit 3, `output_failed`; the state **has** changed. Documented exception; the result is not replayed. |
 | [AMB-ST03-1] | frame RG-3.2 (`arbitre plan` → morning view) vs a group | A command path may need to be both an action and a group. | Question Q-B. Until answered, specs allow it (RG-ST03-4.2 permits a one-segment name equal to the module id). |
-| [AMB-ST03-2] | RG-ST03-1.5 vs RG-ST03-1.3 | If ST-04 keeps the enabled state in the store, deciding "module not enabled" on a malformed command means reading the store. | For ST-04: read an **existing** store only, never create; no store ⇒ default enabled state. RG-ST03-1.3 is then amended to "never created or written". |
+| [AMB-ST03-2] | RG-ST03-1.5 vs RG-ST03-1.3 | If ST-04 keeps the enabled state in the store, deciding "module not enabled" on a malformed command means reading the store. | For ST-04: read an **existing** store only, never create; no store ⇒ default enabled state. RG-ST03-1.3 is then amended to "never created or written". **Signals at opening (frame F-27, ST-04)** [ARB Q-DA2 (a)]: shown on **standard error** in both modes, only for a well-formed action, after the store is opened (so "every command" reads "every action" and RG-ST03-1.3 stands). They are not part of the command's result: outside INV-ST03-2 / frame INV-13, no key in the JSON shape. An assistant that needs them calls an action returning them as data. No ST-03 code change. |
 | [GAP-ST03-1] | Q-7 subset | The arbitrated subset lists no `object`, but every input and output is an object, and outputs need records. | `object` added (RG-ST03-4.3); restricted to the top level in inputs. |
 | [GAP-ST03-2] | Q-3 "range", "length limit" | The subset had no constraint keywords. | `minimum`/`maximum` (integer), `minLength`/`maxLength` (string) added, so these refusals are usage as Q-3 (a) intends. |
 
@@ -398,7 +399,7 @@ All in `crates/cli/tests/` (spawning the binary) unless noted; run by `10-st01-t
 - `INV-ST03-1` (frame INV-12): malformed command ⇒ exit 2, usage shown, store never opened — RG-ST03-1.1, 1.2, 1.3
 - `INV-ST03-2` (frame INV-13): human rendering is a function of the `Value` only; every leaf appears in it — RG-ST03-2.3
 - `INV-ST03-3` (frame INV-14): five categories, codes 0–4 injective, `0 ⇔ Success`; same code in both modes — RG-ST03-3.1, 3.2
-- `INV-ST03-4`: JSON mode writes exactly one result document of the frozen shape on stdout, for every outcome — RG-ST03-2.1
+- `INV-ST03-4`: JSON mode writes exactly one result document of the frozen shape on stdout, for every outcome (failure `data` optional) — RG-ST03-2.1
 - `INV-ST03-5`: canonical encoding is a function, sorted keys, fixed escaping, parseable back — RG-ST03-2.4
 - `INV-ST03-6`: crash ⇒ exit ∉ {0, 1}; caught panic ⇒ 3 `internal_error` — RG-ST03-3.5
 - `INV-ST03-7`: catalogue build refuses duplicates, path collisions, ill-formed names, out-of-subset schemas, `logged_as` without `mutating` — RG-ST03-4.2, 4.3, 4.6
