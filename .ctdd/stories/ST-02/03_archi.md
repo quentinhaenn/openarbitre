@@ -247,7 +247,7 @@ impl Store for SqliteStore { … }
   1. Read `application_id`, `user_version`, table list in a read transaction. `SQLITE_NOTADB` → `NotAStore`.
   2. No table and `user_version = 0` → creation: set WAL, `BEGIN IMMEDIATE`, re-check (another process may have created it), create tables, draw `D` with `getrandom` (failure → `Unavailable(RandomSource)`), `K = (0, 0)`, set `application_id` and `user_version = 1`, commit.
   3. Otherwise: foreign `application_id` or tables → `NotAStore`; `user_version > 1` → `Unavailable(IncompatibleVersion)`; `0` or missing rows → `Layout` / `DeviceId` / `ClockState`; `K` below the largest stored stamp (one indexed `ORDER BY l DESC, c DESC LIMIT 1`) → `ClockState`.
-  - No full integrity scan at open (RG-ST02-7.2 allows detection by the first read reaching the damage).
+  - No full integrity scan at open (RG-ST02-7.2 allows detection by the first read reaching the damage). *Superseded by plan P-10: incremental row check (rows past `device.checked`) plus `PRAGMA quick_check` at open; full check on demand (`check_all`).*
 - **Reads**: one `BEGIN DEFERRED` read transaction per operation (writes + seen rows from the same snapshot); WAL readers are not blocked by a writer (RG-ST02-3.5).
 - **Writes**: `BEGIN IMMEDIATE` (waits up to `wait`), load, core call, insert, update, `COMMIT`. Any error → `ROLLBACK` (SQLite may or may not have rolled back itself after `SQLITE_FULL`/`IOERR`; the adapter always does it, ignoring "no transaction").
 - **Error mapping**:
