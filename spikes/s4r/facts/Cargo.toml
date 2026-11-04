@@ -1,0 +1,8 @@
+[package]
+name = "facts"
+version = "0.0.0"
+edition.workspace = true
+publish.workspace = true
+
+# Port + fact model + checker: no dependency at all.
+[dependencies]

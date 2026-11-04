@@ -1,0 +1,12 @@
+# Throwaway spike S4-R: its own workspace, never a member of the repo workspace.
+[workspace]
+resolver = "3"
+members = ["facts", "lang-rust", "lang-rust-syn", "lang-python", "demo"]
+
+[workspace.package]
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+facts = { path = "facts" }
+tree-sitter = "0.27.1"

@@ -1,0 +1,10 @@
+[package]
+name = "lang-rust"
+version = "0.0.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+facts.workspace = true
+tree-sitter.workspace = true
+tree-sitter-rust = "0.24.2"

@@ -1,0 +1,12 @@
+# Source-level rules of scripts/lib/graph.py, as dependency facts (one language: Rust).
+# arbitre-core reaches no other workspace crate (rule (a), ALLOWED table).
+rust:arbitre_core !-> rust:arbitre
+# rule (c): no `extern crate std` in a browser-list crate; any std path counts here.
+rust:arbitre_core !-> rust:std
+# rule (b), source side: forbidden crates named in code.
+rust:arbitre_core !-> rust:rusqlite
+rust:arbitre_core !-> rust:tokio
+rust:arbitre_core !-> rust:reqwest
+# Probes that must fire: the CLI uses clap; core integration tests use std (other crates: `#tests`).
+rust:arbitre !-> rust:clap
+rust:arbitre_core#tests !-> rust:std::collections
