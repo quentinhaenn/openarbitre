@@ -106,6 +106,10 @@ class TestGraph(unittest.TestCase):
         m = meta({"arbitre-relay": ["arbitre-plan"], "arbitre-plan": ["arbitre-core"], "arbitre-core": []})
         self.assertTrue(graph.rule_edges(m))
 
+    def test_plan_to_sqlite_rejected(self):
+        m = meta({"arbitre-plan": ["arbitre-sqlite"], "arbitre-sqlite": ["arbitre-core"], "arbitre-core": []})
+        self.assertTrue(graph.rule_edges(m))
+
     def test_core_to_a_component_rejected(self):
         self.assertTrue(graph.rule_edges(meta({"arbitre-core": ["arbitre-plan"], "arbitre-plan": []})))
 
@@ -239,6 +243,15 @@ class TestMutation(unittest.TestCase):
     def test_gen_forbidden_in_the_core(self):
         zones = self.zones('Gen = ["crates/core/src/**"]\n')
         self.assertEqual(mutation.gen_guard(["crates/core/src/hlc.rs"], zones), ["crates/core/src/hlc.rs"])
+
+    def test_gen_files_listed(self):
+        zones = self.zones('Gen = ["crates/cli/src/**", "crates/sqlite/src/**"]\n')
+        paths = ["crates/cli/src/main.rs", "crates/sqlite/src/lib.rs", "crates/core/src/hlc.rs"]
+        self.assertEqual(mutation.gen_files(paths, zones), paths[:2])
+
+    def test_gen_files_strictest_wins(self):
+        zones = self.zones('Gen = ["crates/x/src/**"]\nStd = ["crates/x/src/a.rs"]\n')
+        self.assertEqual(mutation.gen_files(["crates/x/src/a.rs"], zones), [])
 
     def test_unreadable_output_red(self):
         with self.assertRaises(RedError):

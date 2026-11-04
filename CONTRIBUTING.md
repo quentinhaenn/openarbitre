@@ -2,6 +2,16 @@
 
 The rules below come from ST-01 (`.ctdd/stories/ST-01/`). Changing them is a **foundation amendment**.
 
+## AI-assisted contributions
+
+This project was developed with generative AI, and AI-assisted contributions are welcome on three conditions:
+
+1. The change passes every quality gate: `ci` (tests, mutation testing) and `judge`.
+2. You can explain the code you submit and the main trade-offs it makes, as if you had written it yourself.
+3. For critical components (zone `Full`: the merge engine, cryptography, security), you can also explain the implementation details.
+
+You remain responsible for the code you submit, whoever or whatever wrote it.
+
 ## Branches and PRs
 
 - `main` is protected: every change goes through a PR, `.ctdd/` included.
@@ -69,13 +79,14 @@ On a `Cargo.lock` conflict, never merge it by hand: take `main`'s (`git checkout
 ```toml
 Full = ["crates/core/src/hlc.rs"]   # mutation threshold 85%
 Std  = ["crates/core/src/clock.rs"] # threshold 70%
-Gen  = ["crates/cli/src/**"]        # informational score, no threshold
+Gen  = ["crates/cli/src/**"]        # not mutated in CI, no threshold
 ```
 
 - Top-level keys: `Full`, `Std`, `Gen`, each a list of patterns. Any other key, another type or unreadable TOML ⇒ `red`.
 - Patterns are relative to the root, with `PurePosixPath.full_match` semantics (Python ≥ 3.13): `*` stays within a segment, `**` covers zero or more segments.
 - All declarations of all stories are read. A file's zone is the strictest that covers it (`Full > Std > Gen`); an uncovered file gets `Full`.
 - A file of `crates/core/` or `crates/plan/` in `Gen` ⇒ `red`.
+- `Gen` files are not mutated in CI: `50-st01-mutation.sh` excludes them (same resolution as the judge). Local run: `cargo mutants --all-features -f 'crates/sqlite/src/**'`.
 
 ## Equivalent mutants: `.ctdd/stories/ST-xx/mutants_equivalents.toml`
 
@@ -87,7 +98,7 @@ justification = "why no observable behaviour changes"
 
 - `mutant` is the exact name given by cargo-mutants, copied from `mutants.out`. If the mutant moves to another line, the entry no longer matches and CI goes red: update it.
 - Empty or missing justification, or unknown key ⇒ `red`.
-- **This is the only exclusion channel.** Forbidden, and making `50-st01-mutation.sh` red: the `mutants::skip` attribute in `crates/**/*.rs`, any `mutants.toml` file in the repository (hence `exclude_re` and `exclude_globs`), and `--exclude` outside the command line of `50-st01-mutation.sh`.
+- **This is the only exclusion channel**, besides the automatic exclusion of `Gen` files (see "Zones"). Forbidden, and making `50-st01-mutation.sh` red: the `mutants::skip` attribute in `crates/**/*.rs`, any `mutants.toml` file in the repository (hence `exclude_re` and `exclude_globs`), and `--exclude` outside the command line of `50-st01-mutation.sh`.
 
 ## Secret false positives: `.gitleaksignore`
 
