@@ -104,7 +104,7 @@ impl SqliteStore {
         // switches it to WAL (plan R-9): retry the whole sequence until `wait` elapses.
         let deadline = Instant::now() + options.wait;
         loop {
-            match Self::open_once(path, options) {
+            match Self::open_once(path, options, deadline) {
                 Err(StoreError::Unavailable(Cause::Busy)) if Instant::now() < deadline => {
                     std::thread::sleep(Duration::from_millis(2));
                 }
@@ -113,14 +113,16 @@ impl SqliteStore {
         }
     }
 
-    fn open_once(path: &Path, options: &Options) -> Result<Self, StoreError> {
+    fn open_once(path: &Path, options: &Options, deadline: Instant) -> Result<Self, StoreError> {
         let flags = OpenFlags::default();
         let mut conn = match &options.vfs {
             Some(vfs) => Connection::open_with_flags_and_vfs(path, flags, vfs.as_str()),
             None => Connection::open_with_flags(path, flags),
         }
         .map_err(map)?;
-        conn.busy_timeout(options.wait).map_err(map)?;
+        // Each attempt gets only the time left, so `open` stays within `wait`.
+        conn.busy_timeout(deadline.saturating_duration_since(Instant::now()))
+            .map_err(map)?;
         for (name, value) in [
             ("synchronous", "FULL"),
             ("fullfsync", "ON"),
@@ -499,7 +501,13 @@ fn insert(tx: &Transaction, w: &Write) -> Result<(), StoreError> {
         Change::Field { name, value } => (name.0.as_bytes(), Some(&value.0)),
         Change::Delete => (b"", None),
     };
-    let author = AUTHORS.iter().position(|a| *a == w.author).unwrap_or(0);
+    // Exhaustive: a new `Author` must get a code here and in `AUTHORS`.
+    let author: i64 = match w.author {
+        Author::CliUser => 0,
+        Author::UiUser => 1,
+        Author::Assistant => 2,
+        Author::System => 3,
+    };
     tx.prepare_cached(
         "INSERT INTO writes (module, category, id, field, value, l, c, a, author)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
@@ -514,7 +522,7 @@ fn insert(tx: &Transaction, w: &Write) -> Result<(), StoreError> {
         w.stamp.l as i64,
         w.stamp.c,
         &w.stamp.a.0[..],
-        author as i64,
+        author,
     ))
     .map_err(map)?;
     let pos = tx.last_insert_rowid();
@@ -574,6 +582,14 @@ fn mark(tx: &Transaction, peer: DeviceId) -> Result<Option<Watermark>, StoreErro
 }
 
 impl SqliteStore {
+    /// Fails with the stored damage once the handle is poisoned (RG-ST02-7.2).
+    fn check_poison(&self) -> Result<(), StoreError> {
+        match self.poisoned.borrow().as_ref() {
+            Some(d) => Err(StoreError::Corrupted(d.clone())),
+            None => Ok(()),
+        }
+    }
+
     /// Runs `f` in one transaction (`IMMEDIATE` for writes), commits on `Ok`, rolls back otherwise.
     /// The first `Corrupted` poisons the handle (RG-ST02-7.2).
     fn exec<T>(
@@ -581,9 +597,7 @@ impl SqliteStore {
         behavior: TransactionBehavior,
         f: impl FnOnce(&Transaction) -> Result<T, ApplyError>,
     ) -> Result<T, ApplyError> {
-        if let Some(d) = self.poisoned.borrow().as_ref() {
-            return Err(StoreError::Corrupted(d.clone()).into());
-        }
+        self.check_poison()?;
         let mut conn = self.conn.borrow_mut();
         let out = Transaction::new(&mut conn, behavior)
             .map_err(|e| ApplyError::Store(map(e)))
@@ -620,6 +634,7 @@ impl SqliteStore {
 
 impl Store for SqliteStore {
     async fn device(&self) -> Result<DeviceId, StoreError> {
+        self.check_poison()?;
         Ok(self.device)
     }
 
@@ -628,6 +643,7 @@ impl Store for SqliteStore {
         pt: u64,
         changes: &[LocalChange],
     ) -> Result<Vec<Write>, ApplyError> {
+        self.check_poison()?;
         // `stamp_local` on an empty list returns a meaningless `K'`.
         if changes.is_empty() {
             return Ok(Vec::new());

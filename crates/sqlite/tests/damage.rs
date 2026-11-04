@@ -194,17 +194,7 @@ fn truncation_is_refused() {
         match open(&p) {
             Err(StoreError::Corrupted(_)) => {}
             Err(other) => panic!("len {len}: {other:?}"),
-            // Q-P6: a cut past every page the check reads may only show on a later read.
-            Ok(s) => assert!(
-                matches!(
-                    block_on(s.writes_of(&rec("c", "a"))),
-                    Err(StoreError::Corrupted(_))
-                ) || matches!(
-                    block_on(s.watermark(DeviceId::from_u128(9))),
-                    Err(StoreError::Corrupted(_))
-                ),
-                "len {len}: truncated store opened and read cleanly"
-            ),
+            Ok(_) => panic!("len {len}: truncated store opened"),
         }
         assert_eq!(
             std::fs::read(&p).unwrap(),
@@ -330,6 +320,14 @@ fn damage_after_open_is_found_by_the_operation() {
                 // Poison: the handle keeps answering the same error, also for record `b`.
                 let again = block_on(store.writes_of(&rec("c", "b"))).expect_err(&tag);
                 expect_corrupted(again, want, &format!("{tag} (poison)"));
+                let dev = block_on(store.device()).expect_err(&tag);
+                expect_corrupted(dev, want, &format!("{tag} (poison, device)"));
+                let empty = block_on(store.apply_local(1000, &[])).map_err(store_err);
+                expect_corrupted(
+                    empty.expect_err(&tag),
+                    want,
+                    &format!("{tag} (poison, empty apply_local)"),
+                );
             } else {
                 got.unwrap_or_else(|e| panic!("{tag}: {e:?}"));
             }

@@ -263,6 +263,24 @@ fn short_hold_succeeds() {
 }
 
 #[test]
+fn open_busy_is_bounded_by_wait() {
+    let p = path();
+    let raw = Connection::open(&p).unwrap();
+    raw.execute_batch("CREATE TABLE t (x); BEGIN EXCLUSIVE")
+        .unwrap();
+    let wait = Duration::from_millis(200);
+    let o = Options {
+        wait,
+        ..Options::default()
+    };
+    let t = Instant::now();
+    let r = SqliteStore::open(&p, &o);
+    let el = t.elapsed();
+    assert_eq!(r.err(), Some(StoreError::Unavailable(Cause::Busy)));
+    assert!(el >= wait && el < wait + Duration::from_secs(1), "{el:?}");
+}
+
+#[test]
 fn zero_wait_fails_fast() {
     let p = path();
     let s = open_wait(&p, 0);
