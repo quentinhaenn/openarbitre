@@ -83,6 +83,10 @@ def gen_guard(paths: list[str], zones: dict[str, list[str]]) -> list[str]:
     return [p for p in paths if p.startswith(NO_GEN) and zone_of(p, zones) == "Gen"]
 
 
+def gen_files(paths: list[str], zones: dict[str, list[str]]) -> list[str]:
+    """Files whose effective zone is `Gen`: excluded from CI mutation by `50-st01-mutation.sh`."""
+    return [p for p in paths if zone_of(p, zones) == "Gen"]
+
 def read_equivalents(contents: dict[str, str]) -> set[str]:
     """Exact names of the equivalent mutants from all `mutants_equivalents.toml` files.
 
@@ -163,6 +167,9 @@ def main(argv: list[str]) -> int:
     out = Path(os.environ.get("CI_OUT", "target/ci"))
     try:
         zones = read_zones(_read(".ctdd/stories/*/zones.toml"))
+        if "--gen-files" in argv:
+            print("\n".join(gen_files(sorted(p.as_posix() for p in Path("crates").rglob("*.rs")), zones)))
+            return 0
         equivalents = read_equivalents(_read(".ctdd/stories/*/mutants_equivalents.toml"))
         forbidden = gen_guard([p.as_posix() for d in NO_GEN for p in Path(d).rglob("*.rs")], zones)
         outcomes_file = out / "mutants.out" / "outcomes.json"

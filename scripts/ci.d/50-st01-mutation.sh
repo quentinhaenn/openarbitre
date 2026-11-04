@@ -15,7 +15,11 @@ fi
 
 git diff "$CI_BASE...$CI_HEAD" >"$CI_OUT/diff.patch"
 if [ -s "$CI_OUT/diff.patch" ]; then
-  cargo mutants --in-diff "$CI_OUT/diff.patch" --all-features --output "$CI_OUT"
+  python3 scripts/lib/mutation.py --gen-files >"$CI_OUT/gen.txt" || exit 1
+  mapfile -t gen <"$CI_OUT/gen.txt"
+  excludes=()
+  for f in "${gen[@]}"; do [ -n "$f" ] && excludes+=(--exclude "$f"); done
+  cargo mutants --in-diff "$CI_OUT/diff.patch" --all-features "${excludes[@]}" --output "$CI_OUT"
   code=$?
   # 0 = all caught, 2 = missed mutants, 3 = timeouts, 4 = red baseline: the verdict comes from outcomes.json.
   case $code in
