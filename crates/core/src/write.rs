@@ -20,7 +20,7 @@ pub struct RecordId {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Field(pub String);
 
-/// FieldValue serialized by the module; the core only compares its bytes.
+/// Field value serialized by the module; the core only compares its bytes.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FieldValue(pub Vec<u8>);
 

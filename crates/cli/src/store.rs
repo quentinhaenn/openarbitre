@@ -77,6 +77,7 @@ pub fn map_store(e: StoreError) -> ActionError {
 }
 
 /// `ApplyError` → `ToolError`: `Rejected` → `write_rejected`, `Store` → `map_store`.
+#[cfg_attr(not(feature = "test-actions"), expect(dead_code))]
 pub fn map_apply(e: ApplyError) -> ActionError {
     match e {
         ApplyError::Rejected(r) => {
@@ -87,6 +88,7 @@ pub fn map_apply(e: ApplyError) -> ActionError {
 }
 
 /// One poll on a no-op waker (ST-02 futures are ready, spike S1-A); `Pending` → `internal_error`.
+#[cfg_attr(not(feature = "test-actions"), expect(dead_code))]
 pub fn block_on<F: Future>(fut: F) -> Result<F::Output, ActionError> {
     match std::pin::pin!(fut).poll(&mut Context::from_waker(Waker::noop())) {
         Poll::Ready(v) => Ok(v),

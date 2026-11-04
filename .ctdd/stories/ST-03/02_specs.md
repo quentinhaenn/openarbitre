@@ -36,7 +36,7 @@ Terms of `CONTRIBUTING.md` keep their meaning. New terms (to add to the glossary
 | `Output` | The success result of an action: a `Value` conforming to the output schema, plus its derived human rendering. In code, `pub type Output = Value;` (no separate type). |
 | `Category` | The kind of an outcome: `Success`, `Refusal`, `Usage`, `ToolError`, `ModuleNotEnabled`. Each has one exit code. |
 | `ActionError` | A failure: a non-success category, a stable error id, an English message and optional structured details (a `Value`, the failure document's `data`). |
-| Error id | Stable `snake_case` identifier of a failure (`unknown_argument`, `storage_busy`). Scripts may rely on it; the message is not stable. |
+| Error id | Stable `snake_case` identifier of a failure (`unknown_option`, `storage_busy`). Scripts may rely on it; the message is not stable. |
 | Result document | The single JSON document written on standard output in JSON mode, for every outcome. |
 | JSON mode | A command run with `--json`. Human mode otherwise. |
 | Store location | Path of the store file the command opens (RG-ST03-5.1). |

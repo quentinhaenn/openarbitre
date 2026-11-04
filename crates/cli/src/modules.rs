@@ -1,7 +1,7 @@
 //! Wired modules: one `mod` line and one list line per module (ST-03 plan P-4, P-5).
 //! Provisional execution seam; ST-04 replaces it with `Module` and `Context` in core.
 
-use arbitre_core::value::Value;
+use arbitre_core::Value;
 use arbitre_core::{ActionDescriptor, ActionError, Author, Catalog, CatalogError};
 use arbitre_sqlite::SqliteStore;
 
@@ -10,6 +10,7 @@ use arbitre_sqlite::SqliteStore;
 mod test;
 
 /// What an action runs with (provisional until ST-04).
+#[cfg_attr(not(feature = "test-actions"), expect(dead_code))]
 pub struct Context<'a> {
     pub store: &'a SqliteStore,
     /// Physical time, ms since the Unix epoch.
@@ -57,8 +58,7 @@ mod tests {
     #[test]
     fn full_catalogue_builds() {
         let c = catalog(&all()).expect("catalogue valid");
-        #[cfg(feature = "test-actions")]
-        assert!(c.actions().iter().any(|a| a.name == "test.echo"));
-        let _ = c;
+        let test_actions = cfg!(feature = "test-actions");
+        assert!(!test_actions || c.actions().iter().any(|a| a.name == "test.echo"));
     }
 }

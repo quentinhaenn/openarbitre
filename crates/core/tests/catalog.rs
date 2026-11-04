@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use arbitre_core::value::Value;
+use arbitre_core::Value;
 use arbitre_core::{
     ActionDescriptor, Catalog, CatalogError, LoggedAs, Property, Schema, command_path,
     conforms_input, conforms_output, encode, mcp_name, parse_text,
@@ -177,13 +177,6 @@ fn action_and_group_on_one_path_accepted() {
 
 #[test]
 fn duplicate_name_refused() {
-    refused(
-        &[
-            ("test", vec![action("test.echo")]),
-            ("test", vec![action("test.echo")]),
-        ],
-        &["test.echo", "test"],
-    );
     refused(
         &[("test", vec![action("test.echo"), action("test.echo")])],
         &["test.echo"],
@@ -726,5 +719,8 @@ fn required_sorted_by_name() {
 
 #[test]
 fn duplicate_module_id_is_refused() {
-    refused(&[("m", vec![action("m.a")]), ("m", vec![action("m.b")])], &["\"m\"", "twice"]);
+    refused(
+        &[("m", vec![action("m.a")]), ("m", vec![action("m.b")])],
+        &["\"m\"", "twice"],
+    );
 }

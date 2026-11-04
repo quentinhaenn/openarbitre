@@ -65,7 +65,7 @@ With `--json`, standard output carries exactly one document, whatever the outcom
 - success: `{"data": <output>, "format": 1, "ok": true}`;
 - failure: `{"error": {"category": "<JSON category>", "code": <exit code>, "id": "<error id>", "message": "<text>"}, "format": 1, "ok": false}`, plus a top-level `"data"` key only when the failure carries structured details.
 
-Keys are sorted and no whitespace is written. Error ids are stable; messages are not.
+Keys are sorted and no whitespace is written. Messages are not stable. These error ids never disappear: `storage_full`, `storage_corrupted`, `storage_busy`, `storage_incompatible_version`, `storage_unavailable`, `write_rejected`, `no_default_store`, `catalog_invalid`, `output_mismatch`, `internal_error`, `output_failed`. Other ids (usage ids in particular) may change.
 
 A failed command changes nothing, with one exception: if a mutating command commits and then cannot write its result (`output_failed`, exit 3), the change has been applied.
 

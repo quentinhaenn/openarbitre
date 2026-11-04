@@ -66,7 +66,7 @@ Everything public in this repository is written in English: code, comments, mess
 | sortie | `Output` (= `Value`), human text from `render` |
 | catégorie | `Category` (`Success`, `Refusal`, `Usage`, `ToolError`, `ModuleNotEnabled`), `exit_code`, `json_name` |
 | erreur d'action | `ActionError` (`category`, `id`, `message`, optional `data`) |
-| identifiant d'erreur | error id: stable `snake_case` string (`unknown_argument`, `storage_busy`) |
+| identifiant d'erreur | error id: stable `snake_case` string (`unknown_option`, `storage_busy`) |
 | document résultat | result document: the one JSON object of `--json`, built by `document` |
 | mode JSON | JSON mode: a command run with `--json` |
 | emplacement du magasin | store location: `--store`, `ARBITRE_STORE`, platform default |

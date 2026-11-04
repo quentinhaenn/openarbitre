@@ -1,21 +1,16 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use arbitre_core::value::Value;
+use arbitre_core::Value;
 use arbitre_core::{
     ActionDescriptor, ActionError, Catalog, Property, Schema, command_path, parse_text,
 };
-use clap::builder::PossibleValuesParser;
+use clap::builder::{PossibleValuesParser, TypedValueParser};
 use clap::error::ErrorKind;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 
 /// Outcome of a command before rendering.
 pub type Outcome = Result<Value, ActionError>;
-
-/// clap takes `&'static str` without its `string` feature; one command per process.
-fn leak(s: &str) -> &'static str {
-    Box::leak(s.into())
-}
 
 /// Command tree: one sub-command per path segment, sorted; long options from input
 /// properties; global `--json`, `--store`; no short options (RG-ST03-4.7).
@@ -57,9 +52,9 @@ struct Node<'a> {
 }
 
 fn node_command(name: &str, node: &Node) -> Command {
-    let mut c = Command::new(leak(name)).disable_help_subcommand(true);
+    let mut c = Command::new(name.to_string()).disable_help_subcommand(true);
     if let Some(a) = node.action {
-        c = c.about(leak(&a.summary));
+        c = c.about(a.summary.clone());
         if let Schema::Object(props) = &a.input {
             c = c.args(props.iter().map(option));
         }
@@ -76,11 +71,10 @@ fn node_command(name: &str, node: &Node) -> Command {
 
 /// Booleans and lists are never required on the command line (absent = `false` / `[]`).
 fn option(p: &Property) -> Arg {
-    let name = leak(&p.name);
-    let a = Arg::new(name)
-        .long(name)
-        .value_name(leak(&p.name.to_uppercase()))
-        .help(leak(&p.description));
+    let a = Arg::new(p.name.clone())
+        .long(p.name.clone())
+        .value_name(p.name.to_uppercase())
+        .help(p.description.clone());
     match &p.schema {
         Schema::Boolean => a.action(ArgAction::SetTrue),
         Schema::List(item) => scalar(a.action(ArgAction::Append), item),
@@ -89,17 +83,17 @@ fn option(p: &Property) -> Arg {
 }
 
 fn scalar(a: Arg, s: &Schema) -> Arg {
+    let t = s.clone();
     match s {
-        Schema::Enum(vs) => a.value_parser(PossibleValuesParser::new(vs.iter().map(|v| leak(v)))),
-        _ => {
-            let a = match s {
-                Schema::Integer { .. } => a.value_name("INTEGER").allow_negative_numbers(true),
-                Schema::Date => a.value_name("DATE"),
-                _ => a,
-            };
-            let s = s.clone();
-            a.value_parser(move |t: &str| parse_text(&s, t))
-        }
+        Schema::Enum(vs) => a.value_parser(PossibleValuesParser::new(vs.clone()).map(Value::Str)),
+        Schema::Integer { .. } => a
+            .value_name("INTEGER")
+            .allow_negative_numbers(true)
+            .value_parser(move |x: &str| parse_text(&t, x)),
+        Schema::Date => a
+            .value_name("DATE")
+            .value_parser(move |x: &str| parse_text(&t, x)),
+        _ => a.value_parser(move |x: &str| parse_text(&t, x)),
     }
 }
 
@@ -121,17 +115,12 @@ pub fn selected<'a>(
     (action, leaf)
 }
 
-fn values(m: &ArgMatches, name: &str, s: &Schema) -> Vec<Value> {
-    if matches!(s, Schema::Enum(_)) {
-        let it = m.get_many::<String>(name).into_iter().flatten();
-        it.map(|x| Value::Str(x.clone())).collect()
-    } else {
-        m.get_many::<Value>(name)
-            .into_iter()
-            .flatten()
-            .cloned()
-            .collect()
-    }
+fn values(m: &ArgMatches, name: &str) -> Vec<Value> {
+    m.get_many::<Value>(name)
+        .into_iter()
+        .flatten()
+        .cloned()
+        .collect()
 }
 
 /// Conforming input `Value` of `action` from its parsed options (RG-ST03-4.4).
@@ -143,8 +132,8 @@ pub fn input(matches: &ArgMatches, action: &ActionDescriptor) -> Value {
     for p in props {
         let v = match &p.schema {
             Schema::Boolean => Some(Value::Bool(matches.get_flag(&p.name))),
-            Schema::List(item) => Some(Value::List(values(matches, &p.name, item))),
-            s => values(matches, &p.name, s).pop(),
+            Schema::List(_) => Some(Value::List(values(matches, &p.name))),
+            _ => values(matches, &p.name).pop(),
         };
         o.extend(v.map(|v| (p.name.clone(), v)));
     }
@@ -154,27 +143,28 @@ pub fn input(matches: &ArgMatches, action: &ActionDescriptor) -> Value {
 /// Help/version → success `{"help"|"version": text}`; other clap errors → `Usage` (RG-ST03-1.1, 1.4).
 pub fn usage_error(e: clap::Error) -> Outcome {
     let text = e.to_string();
-    let key = match e.kind() {
-        ErrorKind::DisplayHelp => "help",
-        ErrorKind::DisplayVersion => "version",
-        k => {
-            let id = match k {
-                ErrorKind::UnknownArgument => "unknown_option",
-                ErrorKind::InvalidSubcommand => "unknown_command",
-                ErrorKind::MissingRequiredArgument => "missing_option",
-                ErrorKind::MissingSubcommand => "missing_command",
-                ErrorKind::ArgumentConflict => "repeated_option",
-                ErrorKind::InvalidValue | ErrorKind::ValueValidation | ErrorKind::InvalidUtf8 => {
-                    "invalid_value"
-                }
-                _ => "usage",
-            };
-            let msg = text.trim();
-            let msg = msg.strip_prefix("error: ").unwrap_or(msg);
-            return Err(ActionError::usage(id, msg));
+    let id = match e.kind() {
+        ErrorKind::DisplayHelp => return Ok(doc("help", text)),
+        ErrorKind::DisplayVersion => return Ok(doc("version", text)),
+        ErrorKind::UnknownArgument => "unknown_option",
+        ErrorKind::InvalidSubcommand => "unknown_command",
+        ErrorKind::MissingRequiredArgument => "missing_option",
+        ErrorKind::MissingSubcommand => "missing_command",
+        ErrorKind::ArgumentConflict => "conflicting_arguments",
+        ErrorKind::InvalidValue | ErrorKind::ValueValidation | ErrorKind::InvalidUtf8 => {
+            "invalid_value"
         }
+        _ => "usage",
     };
-    Ok(Value::Object([(key.to_string(), Value::Str(text))].into()))
+    let msg = text.trim();
+    Err(ActionError::usage(
+        id,
+        msg.strip_prefix("error: ").unwrap_or(msg),
+    ))
+}
+
+fn doc(key: &str, text: String) -> Value {
+    Value::Object([(key.to_string(), Value::Str(text))].into())
 }
 
 #[cfg(all(test, feature = "test-actions"))]
@@ -199,7 +189,7 @@ mod tests {
         assert_eq!(id(&["arbitre", "test"]), "missing_command");
         assert_eq!(
             id(&with(&["--text", "a", "--text", "b"])),
-            "repeated_option"
+            "conflicting_arguments"
         );
         assert_eq!(id(&with(&["--text", "a", "--level", "x"])), "invalid_value");
         assert_eq!(id(&with(&["--text", "a", "--count", "z"])), "invalid_value");

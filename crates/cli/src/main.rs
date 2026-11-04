@@ -143,7 +143,7 @@ fn main() {
 mod tests {
     use std::collections::BTreeSet;
 
-    use arbitre_core::value::Value;
+    use arbitre_core::Value;
     use arbitre_core::{LoggedAs, Schema};
 
     use super::*;

@@ -3,7 +3,7 @@
 
 use std::collections::BTreeSet;
 
-use arbitre_core::value::Value;
+use arbitre_core::Value;
 use arbitre_core::{
     ActionDescriptor, ActionError, Change, Field, FieldValue, LocalChange, LoggedAs, Position,
     Property, RecordId, Schema, Store,

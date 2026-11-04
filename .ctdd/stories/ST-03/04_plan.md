@@ -274,3 +274,8 @@ Binding.
 - **Q-DA1 (a)**: the failure document gets an optional `data` key; `ActionError` gains an optional `Value`, rendered on stderr in human mode.
 - **Q-DA2 (a)**: ST-04's signals go to stderr in both modes, outside INV-13, only for well-formed actions; no ST-03 code change.
 - **Value name clash → (c)**: rename ST-01's `write::Value` to `FieldValue` (foundation amendment, Quentin 2026-11-04).
+
+## ST-04 handover (from the ST-03 review, Q-R1 (a))
+
+- **Refuse module id `arbitre` outside the foundation** (RG-ST03-4.6 bullet 3): not implementable in ST-03, since nothing tells the foundation from any wiring declaring id `arbitre` (the test module does). ST-04: `Module` carries foundation status, `Catalog::build` refuses `arbitre` from a non-foundation module, with a test. Mention in the T-8 PR body.
+- `Catalog::build` already refuses a module id given twice (R-2): ST-04 decides where `arbitre.test-foundation` lives once the real foundation wiring owns id `arbitre`.

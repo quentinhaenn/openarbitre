@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use arbitre_core::value::Value;
+use arbitre_core::Value;
 use arbitre_core::{ActionError, Category, document, encode, render};
 use proptest::prelude::*;
 use proptest::test_runner::{Config as ProptestConfig, RngSeed};

@@ -350,7 +350,7 @@ fn schema_json(s: &Schema) -> BTreeMap<String, Value> {
         } => {
             for (k, v) in [("minLength", min_length), ("maxLength", max_length)] {
                 if let Some(n) = v {
-                    m.insert(k.into(), Value::Int(*n as i64));
+                    m.insert(k.into(), Value::Int(i64::try_from(*n).unwrap_or(i64::MAX)));
                 }
             }
             "string"
