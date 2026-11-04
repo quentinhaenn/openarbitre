@@ -123,7 +123,11 @@ fn stamp_local_seen_covers_earlier_changes_of_the_list() {
 /// US-1 case 8.
 #[test]
 fn us1_case8_clock_went_back() {
-    let known = [write(record("r"), field("f", "a"), stamp(1_000_000_000, 3, D))];
+    let known = [write(
+        record("r"),
+        field("f", "a"),
+        stamp(1_000_000_000, 3, D),
+    )];
     let mut log = rebuild(dev(D), k(1_000_000_000, 3), &known).unwrap();
     let (w, kk) = stamp_local(&mut log, 0, &[local("r", field("f", "b"))]).unwrap();
     assert_eq!(w[0].stamp, stamp(1_000_000_000, 4, D));
@@ -483,7 +487,11 @@ fn us2_case8_received_batch_on_full_storage() {
     let s = sim();
     let before = sigma(&s);
     s.full_after(0);
-    let batch = [write(record("r"), field("f", "a"), stamp(1_000_000, 0, PEER))];
+    let batch = [write(
+        record("r"),
+        field("f", "a"),
+        stamp(1_000_000, 0, PEER),
+    )];
     assert_eq!(
         ready(s.apply(&batch)),
         Err(ApplyError::Store(StoreError::StorageFull))
