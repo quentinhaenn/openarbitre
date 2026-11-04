@@ -49,9 +49,7 @@
   },
   "gestes_en_attente": {
     "S3-L": "Client OAuth Google perso + demande admin Workspace, à faire par Quentin le 2026-11-03 ; la date de demande fixe la borne de S3",
-    "gh": "Rebasculer gh sur quentinhaenn-ops (gh auth switch -h github.com -u quentinhaenn-ops)",
     "S1-A": "Verdict rendu le 2026-11-03 : GO avec réserves, dans .ctdd/spikes/S1-A.md ; code d essai dans .claude/worktrees/agent-ac5860c27fb69a1ae/spikes/s1a/ (non fusionnable)",
-    "ST-01": "Spécificateur lancé par Quentin, sortie attendue dans .ctdd/stories/ST-01/02_specs.md",
     "doc-depot": "Après fusion de ST-01 : PR doc (README.md, SECURITY.md). Plus tard : code de conduite, modèles d'issue/PR, DCO ou CLA au premier contributeur externe."
   }
 }
