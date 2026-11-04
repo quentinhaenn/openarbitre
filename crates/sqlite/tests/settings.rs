@@ -376,3 +376,9 @@ fn round_trip_edge_values() {
         assert_eq!(all, vec![(all[0].0, w.clone())]);
     }
 }
+
+/// Q-3: the default busy wait is 5 s.
+#[test]
+fn default_wait_is_five_seconds() {
+    assert_eq!(Options::default().wait, std::time::Duration::from_secs(5));
+}
