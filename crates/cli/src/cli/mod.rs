@@ -68,9 +68,9 @@ fn node_command(name: &str, node: &Node) -> Command {
         c = c.subcommand(node_command(seg, child));
     }
     match (node.action, node.children.is_empty()) {
+        (None, _) => c.subcommand_required(true),
         (_, true) => c,
         (Some(_), false) => c.args_conflicts_with_subcommands(true),
-        (None, false) => c.subcommand_required(true),
     }
 }
 
@@ -203,5 +203,19 @@ mod tests {
         );
         assert_eq!(id(&with(&["--text", "a", "--level", "x"])), "invalid_value");
         assert_eq!(id(&with(&["--text", "a", "--count", "z"])), "invalid_value");
+    }
+}
+
+#[cfg(test)]
+mod bare_root {
+    use super::*;
+
+    #[test]
+    fn bare_root_is_usage_even_with_an_empty_catalogue() {
+        let catalog = Catalog::build(&[]).unwrap();
+        for args in [&["arbitre"][..], &["arbitre", "--json"]] {
+            let e = command(&catalog).try_get_matches_from(args).unwrap_err();
+            assert_eq!(usage_error(e).unwrap_err().id(), "missing_command");
+        }
     }
 }
