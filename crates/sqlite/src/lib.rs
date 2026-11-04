@@ -8,8 +8,8 @@ use std::collections::BTreeSet;
 
 use arbitre_core::{
     ApplyError, Author, Cause, Change, ClockState, Damage, DeviceId, Field, LocalChange, Log,
-    Position, RecordId, RecordState, Report, Seen, Stamp, Store, StoreError, TargetKind, Value,
-    Watermark, Write, rebuild, receive, stamp_local, validate,
+    Position, RecordId, RecordState, Report, Seen, Stamp, Store, StoreError, Target, TargetKind,
+    Value, Watermark, Write, rebuild, receive, stamp_local, validate,
 };
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior};
 
@@ -128,7 +128,6 @@ impl SqliteStore {
         ] {
             conn.pragma_update(None, name, value).map_err(map)?;
         }
-        // T-13: the P-10 / P-11 open-time check lands in `inspect`.
         let device = match inspect(&mut conn)? {
             Some(d) => d,
             None => match create(&mut conn)? {
@@ -232,7 +231,59 @@ fn inspect(conn: &mut Connection) -> Result<Option<DeviceId>, StoreError> {
             _ => return Err(StoreError::Corrupted(Damage::ClockState)),
         }
     }
-    Ok(Some(DeviceId(device)))
+    let device = DeviceId(device);
+    check_stored(&tx, device)?;
+    Ok(Some(device))
+}
+
+/// Open-time check (P-10, P-11): every stored write decodes and validates, no orphan `seen`
+/// row, no local identity stored twice (cost measured by `tests/damage.rs :: open_check_timing`).
+fn check_stored(tx: &Transaction, device: DeviceId) -> Result<(), StoreError> {
+    load(tx, "", [])?;
+    let orphan: Option<i64> = tx
+        .query_row(
+            "SELECT min(pos) FROM seen WHERE pos NOT IN (SELECT pos FROM writes)",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(map)?;
+    if let Some(pos) = orphan {
+        return Err(bad(pos));
+    }
+    let pair = tx
+        .query_row(
+            "SELECT module, category, id, field, l, c FROM writes WHERE a = ?1
+             GROUP BY module, category, id, field, l, c HAVING count(*) > 1 LIMIT 1",
+            [&device.0[..]],
+            |r| {
+                Ok((
+                    [r.get::<_, Vec<u8>>(0)?, r.get(1)?, r.get(2)?, r.get(3)?],
+                    r.get::<_, i64>(4)?,
+                    r.get::<_, i64>(5)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(map)?;
+    let Some(([module, category, id, field], l, c)) = pair else {
+        return Ok(());
+    };
+    // Decoded writes passed `validate`: identifiers are UTF-8, `l`/`c` in range.
+    let utf8 = |b| text(b).unwrap_or_default();
+    let stamp = stamp_of(l, c, device.0.to_vec());
+    let record = RecordId {
+        module: utf8(module),
+        category: utf8(category),
+        id: utf8(id),
+    };
+    let kind = match utf8(field) {
+        f if f.is_empty() => TargetKind::Delete,
+        f => TargetKind::Field(Field(f)),
+    };
+    Err(StoreError::Corrupted(Damage::LocalIdentityPair {
+        target: Box::new(Target { record, kind }),
+        stamp: stamp.ok_or(StoreError::Corrupted(Damage::Layout))?,
+    }))
 }
 
 /// WAL switch at every open (no-op when already WAL; plan R-9, F-21).
@@ -411,7 +462,13 @@ fn log_of(device: DeviceId, writes: &[Write]) -> Result<Log, StoreError> {
     let mut log = Log::new(device);
     log.merge(writes)
         .map_err(|_| StoreError::Corrupted(Damage::StoredWrite { position: None }))?;
-    Ok(log)
+    match log.anomalies().into_iter().find(|a| a.stamp.a == device) {
+        Some(a) => Err(StoreError::Corrupted(Damage::LocalIdentityPair {
+            target: Box::new(a.target),
+            stamp: a.stamp,
+        })),
+        None => Ok(log),
+    }
 }
 
 fn clock(tx: &Transaction) -> Result<ClockState, StoreError> {
