@@ -7,6 +7,8 @@ rust-version.workspace = true
 
 [dev-dependencies]
 proptest = { workspace = true }
+# Independent JSON parser for ST-03 tests only (plan P-2).
+serde_json = { workspace = true }
 
 [features]
 # SimClock (clock.rs), for tests and simulated devices.

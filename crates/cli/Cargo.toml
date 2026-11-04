@@ -7,4 +7,30 @@ rust-version.workspace = true
 
 [dependencies]
 arbitre-core = { version = "0.1.0", path = "../core" }
-clap = { version = "4.6.7", features = ["derive"] }
+arbitre-sqlite = { version = "0.1.0", path = "../sqlite" }
+clap = "4.6.7"
+
+[dev-dependencies]
+# Independent JSON parser for acceptance tests (ST-03 plan P-2).
+serde_json = { workspace = true }
+
+[features]
+# Test module `test` (crates/cli/src/wiring/test.rs); never shipped (ST-03 plan P-9).
+test-actions = []
+
+# Acceptance tests spawning the binary with the test module: run with --all-features.
+[[test]]
+name = "usage"
+required-features = ["test-actions"]
+
+[[test]]
+name = "output"
+required-features = ["test-actions"]
+
+[[test]]
+name = "codes"
+required-features = ["test-actions"]
+
+[[test]]
+name = "location"
+required-features = ["test-actions"]

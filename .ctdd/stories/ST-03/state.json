@@ -2,7 +2,7 @@
   "feature": "ST-03 — Action catalogue, derived CLI, exit codes",
   "started_at": "2026-11-04T00:00:00+00:00",
   "source": ".ctdd/cadre/04_plan.md § ST-03",
-  "current_phase": 6,
+  "current_phase": 7,
   "phases": {
     "1_story": {
       "status": "done",
@@ -62,8 +62,9 @@
       ]
     },
     "6_skeleton": {
-      "status": "pending",
-      "file": null
+      "status": "done",
+      "file": ".ctdd/stories/ST-03/06_skeleton.md",
+      "note": "built on origin/st-02/store (PR #6 not merged); merge main again once it lands"
     },
     "7_implementation": {
       "status": "pending",

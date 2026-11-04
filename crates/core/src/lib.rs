@@ -8,18 +8,25 @@
 #[macro_use]
 extern crate alloc;
 
+mod catalog;
 mod clock;
+mod error;
 mod hlc;
 mod merge;
 #[cfg(feature = "sim")]
 mod sim_store;
 mod store;
+pub mod value;
 mod write;
 
+pub use catalog::*;
 pub use clock::*;
+pub use error::*;
 pub use hlc::*;
 pub use merge::*;
 #[cfg(feature = "sim")]
 pub use sim_store::*;
 pub use store::*;
+// `value::Value` stays under its module: the root `Value` is `write::Value` (ST-03 skeleton).
+pub use value::{Output, encode, render};
 pub use write::*;

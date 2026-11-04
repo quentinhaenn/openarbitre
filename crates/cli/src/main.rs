@@ -1,11 +1,17 @@
-//! Ligne de commande `arbitre` : parseur minimal en attendant ST-03.
+//! `arbitre` binary: catalogue → derived command line → store → action → one result
+//! (ST-03 specs RG-ST03-2.1, 2.2, 3.5; plan T-6).
+#![expect(dead_code, reason = "ST-03 skeleton: wired by T-6")]
 
-use clap::Parser;
+mod cli;
+mod modules;
+mod store;
 
-#[derive(Parser)]
-#[command(version, about)]
-struct Arguments {}
+/// `--json` among the raw arguments, before any `--` (RG-ST03-2.1).
+fn json_mode(args: &[std::ffi::OsString]) -> bool {
+    let _ = args;
+    todo!("T-6: json_mode — RG-ST03-2.1")
+}
 
 fn main() {
-    Arguments::parse();
+    todo!("T-6: main pipeline — RG-ST03-2.1, 2.2, 3.5, plan F-5")
 }
