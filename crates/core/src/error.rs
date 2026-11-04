@@ -1,5 +1,6 @@
 //! Outcome categories, action errors and the result document (ST-03 specs RG-ST03-2.1, 3.1, 3.4).
 
+use alloc::collections::BTreeMap;
 use alloc::string::String;
 
 use crate::value::Value;
@@ -17,12 +18,24 @@ pub enum Category {
 impl Category {
     /// 0 to 4, injective, `0 ⇔ Success` (RG-ST03-3.1).
     pub fn exit_code(self) -> u8 {
-        todo!("T-2: Category::exit_code — RG-ST03-3.1, INV-ST03-3")
+        match self {
+            Self::Success => 0,
+            Self::Refusal => 1,
+            Self::Usage => 2,
+            Self::ToolError => 3,
+            Self::ModuleNotEnabled => 4,
+        }
     }
 
     /// JSON `category` name; `None` for `Success`, which has no error document.
     pub fn json_name(self) -> Option<&'static str> {
-        todo!("T-2: Category::json_name — RG-ST03-2.1, 3.1")
+        match self {
+            Self::Success => None,
+            Self::Refusal => Some("refusal"),
+            Self::Usage => Some("usage"),
+            Self::ToolError => Some("tool_error"),
+            Self::ModuleNotEnabled => Some("module_not_enabled"),
+        }
     }
 }
 
@@ -88,6 +101,39 @@ impl ActionError {
 
 /// Result document of RG-ST03-2.1 (frozen shape; failure `data` only when `Some`, plan P-12).
 pub fn document(r: &Result<Value, ActionError>) -> Value {
-    let _ = r;
-    todo!("T-2: document — RG-ST03-2.1, INV-ST03-4")
+    let s = |x: &str| Value::Str(x.into());
+    let mut d = BTreeMap::new();
+    d.insert("format".into(), Value::Int(1));
+    match r {
+        Ok(v) => {
+            d.insert("ok".into(), Value::Bool(true));
+            d.insert("data".into(), v.clone());
+        }
+        Err(e) => {
+            d.insert("ok".into(), Value::Bool(false));
+            let mut err = BTreeMap::new();
+            // `Success` is unrepresentable in an error (private fields), so `json_name` is `Some`.
+            err.insert("category".into(), s(e.category.json_name().unwrap_or("")));
+            err.insert("code".into(), Value::Int(e.category.exit_code().into()));
+            err.insert("id".into(), s(&e.id));
+            err.insert("message".into(), s(&e.message));
+            d.insert("error".into(), Value::Object(err));
+            if let Some(x) = &e.data {
+                d.insert("data".into(), x.clone());
+            }
+        }
+    }
+    Value::Object(d)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn data_accessor() {
+        let e = ActionError::refusal("x", "y");
+        assert_eq!(e.data(), None);
+        assert_eq!(e.with_data(Value::Int(1)).data(), Some(&Value::Int(1)));
+    }
 }
