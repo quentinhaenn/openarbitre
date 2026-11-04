@@ -149,3 +149,28 @@ net: about −30 lines possible (S-1 to S-5, S-8), plus the optional S-6 and S-7
 4. R-4: record the deferral (per Q-R1).
 
 The rest (R-5 to R-10, S-1 to S-8) is recommended. R-6/S-1 and S-2 are the most worthwhile.
+
+## Resolution
+
+| Finding | Outcome |
+|---|---|
+| R-1 | Fixed: `(None, _) => subcommand_required(true)`; unit test `bare_root_is_usage_even_with_an_empty_catalogue` (no feature gate), red before / green after. Commit "bare root requires a sub-command" |
+| R-2 | Fixed: `Catalog::build` refuses a module id given twice; test `duplicate_module_id_is_refused`. `duplicate_name_refused` lost its cross-module case (now impossible: a name's first segment is its module id, ids are unique). The test module (`test`, `arbitre`) still builds |
+| R-3 | Measured (below); 1 equivalent recorded in `mutants_equivalents.toml` |
+| R-4 / Q-R1 (a) | Recorded as an ST-04 obligation in `04_plan.md` ("ST-04 handover"). No code. T-8 PR body must repeat it |
+| R-5 | `#[cfg_attr(not(feature = "test-actions"), expect(dead_code))]` on `Context`, `map_apply`, `block_on`; `cargo build -p arbitre` has no warning |
+| R-6 / S-1 | clap `string` feature enabled in `crates/cli/Cargo.toml`; `Cargo.lock` unchanged; `leak()` removed |
+| R-7 / Q-R2 (a) | Glossary and specs example now `unknown_option`; README lists the RG-ST03-3.3 ids as never disappearing, others may change |
+| R-8 | `ArgumentConflict` -> `conflicting_arguments` |
+| R-9 | `write.rs` doc fixed; crate doc mentions the action catalogue |
+| R-10 | `i64::try_from(*n).unwrap_or(i64::MAX)` in `schema_json` |
+| S-2, S-3, S-4, S-5, S-8 | Done (`values` is one `get_many::<Value>`, `scalar` flat, `usage_error` flat with a `doc` helper, `mod value` private + `pub use value::*`, `cfg!` in `full_catalogue_builds`). S-6, S-7 skipped |
+
+### Mutation (cargo-mutants 27.1.0, `--all-features`, after the changes)
+
+| Files | Mutants | Caught | Missed | Unviable | Time |
+|---|---|---|---|---|---|
+| `core`: `value.rs`, `error.rs`, `catalog.rs` | 167 | 152 | 0 | 15 | 26 min (baseline 3 s build + 68 s test) |
+| `cli`: `main.rs`, `modules.rs`, `store.rs`, `cli/mod.rs` | 61 | 40 | 1 | 20 | 54 s |
+
+Score (caught / (caught + missed)): core 100%, cli 97.6%. The one miss, `shipped -> vec![]`, is equivalent (shipped list is empty); see `mutants_equivalents.toml`. Per-file split not kept: cargo-mutants was run once per package.
