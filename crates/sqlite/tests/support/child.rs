@@ -1,18 +1,6 @@
-//! Re-exec protocol shared by the process harnesses (plan T-10, T-11; read by T-13).
-//!
-//! A test target declares `#[test] fn child_entry() { child::child_main() }`. The parent
-//! re-runs its own binary with `--exact child_entry` and `ARBITRE_CHILD_ROLE`; the child talks
-//! over stdin (command lines, EOF = stop) and stdout (lines prefixed `@ `; others are libtest
-//! chatter). Env: `ARBITRE_CHILD_PATH` (store), `ARBITRE_CHILD_WAIT_MS` (busy wait, default
-//! 5000), `ARBITRE_CHILD_ID`, `ARBITRE_CHILD_SEED`, `ARBITRE_CHILD_K`.
-//!
-//! Roles and their lines (child -> parent):
-//! - `open`: `ready`; waits `go`; `opened <hex D>` | `open_failed <dbg>`.
-//! - `writer`: `opened`; per batch `start <b> <n>` then `confirmed <b> <dbg Vec<Write>>`
-//!   (or `failed <b> <dbg>`); stops on any stdin line or EOF. Record ids are `<id>.<b>.<i>`.
-//! - `steps`: `opened`; commands `local <pt> <id=field=value|id=-;...>` -> `ok <dbg>` | `err
-//!   <dbg>`; `hold <ms>` -> `held`, `released`; `since` -> `since <dbg>`.
-//! - `free_writer` / `free_reader`: free-running phase (RG-ST02-3.5), see `interleave.rs`.
+//! Re-exec protocol shared by the process harnesses: the parent re-runs its test binary with
+//! `--exact child_entry` and `ARBITRE_CHILD_ROLE`; stdin carries commands, stdout `@ ` lines.
+//! Roles, lines and env: `.ctdd/stories/ST-02/06_skeleton.md` ("Child process protocol").
 #![allow(dead_code)]
 
 use std::collections::{BTreeMap, HashSet};
