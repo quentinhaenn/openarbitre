@@ -1,14 +1,15 @@
 //! SQLite adapter of the `Store` port, layout v1 (ST-02 archi "SQLite adapter"; plan P-1, P-7 to P-11).
-#![expect(dead_code, reason = "skeleton: bodies land in T-9")]
 
 use std::cell::RefCell;
 use std::path::Path;
 use std::time::Duration;
 
-use arbitre_core::Damage;
+use std::collections::BTreeSet;
+
 use arbitre_core::{
-    ApplyError, Cause, ClockState, DeviceId, LocalChange, Position, RecordId, RecordState, Report,
-    Store, StoreError, Watermark, Write,
+    ApplyError, Author, Cause, Change, ClockState, Damage, DeviceId, Field, LocalChange, Log,
+    Position, RecordId, RecordState, Report, Seen, Stamp, Store, StoreError, TargetKind, Value,
+    Watermark, Write, rebuild, receive, stamp_local, validate,
 };
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior};
 
@@ -273,6 +274,262 @@ fn map(e: rusqlite::Error) -> StoreError {
     }
 }
 
+const AUTHORS: [Author; 4] = [
+    Author::CliUser,
+    Author::UiUser,
+    Author::Assistant,
+    Author::System,
+];
+
+const WRITE_COLS: &str = "pos, module, category, id, field, value, l, c, a, author";
+
+fn bad(pos: i64) -> StoreError {
+    StoreError::Corrupted(Damage::StoredWrite {
+        position: unsigned(pos).map(Position),
+    })
+}
+
+fn stamp_of(l: i64, c: i64, a: Vec<u8>) -> Option<Stamp> {
+    Some(Stamp {
+        l: unsigned(l)?,
+        c: u32::try_from(c).ok()?,
+        a: DeviceId(<[u8; 16]>::try_from(a).ok()?),
+    })
+}
+
+fn text(b: Vec<u8>) -> Option<String> {
+    String::from_utf8(b).ok()
+}
+
+/// Decodes the `writes` row at the cursor, loads its `seen` rows and validates it (RG-ST02-5.5).
+fn decode(tx: &Transaction, r: &rusqlite::Row) -> Result<(Position, Write), StoreError> {
+    let pos: i64 = r.get(0).map_err(map)?;
+    let bad = || bad(pos);
+    let blob = |i| r.get::<_, Vec<u8>>(i).map_err(|_| bad());
+    let (module, category, id) = (blob(1)?, blob(2)?, blob(3)?);
+    let field = blob(4)?;
+    let value: Option<Vec<u8>> = r.get(5).map_err(|_| bad())?;
+    let change = match (field.is_empty(), value) {
+        (true, None) => Change::Delete,
+        (false, Some(v)) => Change::Field {
+            name: Field(text(field).ok_or_else(bad)?),
+            value: Value(v),
+        },
+        _ => return Err(bad()),
+    };
+    let int = |i| r.get::<_, i64>(i).map_err(|_| bad());
+    let stamp = stamp_of(int(6)?, int(7)?, blob(8)?).ok_or_else(bad)?;
+    let author = usize::try_from(int(9)?)
+        .ok()
+        .and_then(|i| AUTHORS.get(i).copied())
+        .ok_or_else(bad)?;
+    let mut seen = Seen::new();
+    let mut st = tx
+        .prepare_cached("SELECT kind, field, l, c, a FROM seen WHERE pos = ?1")
+        .map_err(map)?;
+    let mut rows = st.query([pos]).map_err(map)?;
+    while let Some(s) = rows.next().map_err(map)? {
+        let get = |i| s.get::<_, Vec<u8>>(i).map_err(|_| bad());
+        let kind = match (s.get::<_, i64>(0).map_err(|_| bad())?, get(1)?) {
+            (0, f) if f.is_empty() => TargetKind::Delete,
+            (1, f) => TargetKind::Field(Field(text(f).ok_or_else(bad)?)),
+            _ => return Err(bad()),
+        };
+        let m = stamp_of(
+            s.get(2).map_err(|_| bad())?,
+            s.get(3).map_err(|_| bad())?,
+            get(4)?,
+        )
+        .ok_or_else(bad)?;
+        seen.insert(kind, m);
+    }
+    let w = Write {
+        record: RecordId {
+            module: text(module).ok_or_else(bad)?,
+            category: text(category).ok_or_else(bad)?,
+            id: text(id).ok_or_else(bad)?,
+        },
+        change,
+        stamp,
+        seen,
+        author,
+    };
+    validate(std::slice::from_ref(&w)).map_err(|_| bad())?;
+    Ok((Position(pos as u64), w))
+}
+
+/// Stored writes matching `filter` (a `WHERE` tail), position order, decoded and validated.
+fn load(
+    tx: &Transaction,
+    filter: &str,
+    params: impl rusqlite::Params,
+) -> Result<Vec<(Position, Write)>, StoreError> {
+    let mut st = tx
+        .prepare_cached(&format!(
+            "SELECT {WRITE_COLS} FROM writes {filter} ORDER BY pos"
+        ))
+        .map_err(map)?;
+    let mut rows = st.query(params).map_err(map)?;
+    let mut out = Vec::new();
+    while let Some(r) = rows.next().map_err(map)? {
+        out.push(decode(tx, r)?);
+    }
+    Ok(out)
+}
+
+fn load_record(tx: &Transaction, r: &RecordId) -> Result<Vec<Write>, StoreError> {
+    let rows = load(
+        tx,
+        "WHERE module = ?1 AND category = ?2 AND id = ?3",
+        (r.module.as_bytes(), r.category.as_bytes(), r.id.as_bytes()),
+    )?;
+    Ok(rows.into_iter().map(|(_, w)| w).collect())
+}
+
+/// Log built from stored writes (read paths).
+fn log_of(device: DeviceId, writes: &[Write]) -> Result<Log, StoreError> {
+    let mut log = Log::new(device);
+    log.merge(writes)
+        .map_err(|_| StoreError::Corrupted(Damage::StoredWrite { position: None }))?;
+    Ok(log)
+}
+
+fn clock(tx: &Transaction) -> Result<ClockState, StoreError> {
+    let (l, c): (i64, i64) = tx
+        .query_row("SELECT clock_l, clock_c FROM device", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .map_err(|_| StoreError::Corrupted(Damage::ClockState))?;
+    unsigned(l)
+        .zip(u32::try_from(c).ok())
+        .map(|(l, c)| ClockState { l, c })
+        .ok_or(StoreError::Corrupted(Damage::ClockState))
+}
+
+fn insert(tx: &Transaction, w: &Write) -> Result<(), StoreError> {
+    let (field, value): (&[u8], Option<&[u8]>) = match &w.change {
+        Change::Field { name, value } => (name.0.as_bytes(), Some(&value.0)),
+        Change::Delete => (b"", None),
+    };
+    let author = AUTHORS.iter().position(|a| *a == w.author).unwrap_or(0);
+    tx.prepare_cached(
+        "INSERT INTO writes (module, category, id, field, value, l, c, a, author)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+    )
+    .map_err(map)?
+    .execute((
+        w.record.module.as_bytes(),
+        w.record.category.as_bytes(),
+        w.record.id.as_bytes(),
+        field,
+        value,
+        w.stamp.l as i64,
+        w.stamp.c,
+        &w.stamp.a.0[..],
+        author as i64,
+    ))
+    .map_err(map)?;
+    let pos = tx.last_insert_rowid();
+    let mut st = tx
+        .prepare_cached(
+            "INSERT INTO seen (pos, kind, field, l, c, a) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        )
+        .map_err(map)?;
+    for (kind, m) in &w.seen {
+        let (k, f): (i64, &[u8]) = match kind {
+            TargetKind::Delete => (0, b""),
+            TargetKind::Field(n) => (1, n.0.as_bytes()),
+        };
+        st.execute((pos, k, f, m.l as i64, m.c, &m.a.0[..]))
+            .map_err(map)?;
+    }
+    Ok(())
+}
+
+fn set_clock(tx: &Transaction, k: ClockState) -> Result<(), StoreError> {
+    tx.execute(
+        "UPDATE device SET clock_l = ?1, clock_c = ?2",
+        (k.l as i64, k.c),
+    )
+    .map_err(map)?;
+    Ok(())
+}
+
+/// Stored writes of the given records.
+fn known(
+    tx: &Transaction,
+    records: impl Iterator<Item = RecordId>,
+) -> Result<Vec<Write>, StoreError> {
+    let mut out = Vec::new();
+    for r in records.collect::<BTreeSet<_>>() {
+        out.extend(load_record(tx, &r)?);
+    }
+    Ok(out)
+}
+
+fn mark(tx: &Transaction, peer: DeviceId) -> Result<Option<Watermark>, StoreError> {
+    let b: Option<Vec<u8>> = tx
+        .query_row(
+            "SELECT mark FROM watermarks WHERE peer = ?1",
+            [&peer.0[..]],
+            |r| r.get(0),
+        )
+        .optional()
+        .map_err(map)?;
+    let Some(b) = b else { return Ok(None) };
+    let b = <[u8; 12]>::try_from(b).map_err(|_| StoreError::Corrupted(Damage::Layout))?;
+    let (l, c) = b.split_at(8);
+    Ok(Some(Watermark(
+        u64::from_be_bytes(l.try_into().expect("8 bytes")),
+        u32::from_be_bytes(c.try_into().expect("4 bytes")),
+    )))
+}
+
+impl SqliteStore {
+    /// Runs `f` in one transaction (`IMMEDIATE` for writes), commits on `Ok`, rolls back otherwise.
+    /// The first `Corrupted` poisons the handle (RG-ST02-7.2).
+    fn exec<T>(
+        &self,
+        behavior: TransactionBehavior,
+        f: impl FnOnce(&Transaction) -> Result<T, ApplyError>,
+    ) -> Result<T, ApplyError> {
+        if let Some(d) = self.poisoned.borrow().as_ref() {
+            return Err(StoreError::Corrupted(d.clone()).into());
+        }
+        let mut conn = self.conn.borrow_mut();
+        let out = Transaction::new(&mut conn, behavior)
+            .map_err(|e| ApplyError::Store(map(e)))
+            .and_then(|tx| {
+                let v = f(&tx)?;
+                tx.commit().map_err(|e| ApplyError::Store(map(e)))?;
+                Ok(v)
+            });
+        if let Err(ApplyError::Store(StoreError::Corrupted(d))) = &out {
+            *self.poisoned.borrow_mut() = Some(d.clone());
+        }
+        out
+    }
+
+    fn run<T>(
+        &self,
+        behavior: TransactionBehavior,
+        f: impl FnOnce(&Transaction) -> Result<T, StoreError>,
+    ) -> Result<T, StoreError> {
+        match self.exec(behavior, |tx| Ok(f(tx)?)) {
+            Ok(v) => Ok(v),
+            Err(ApplyError::Store(e)) => Err(e),
+            Err(ApplyError::Rejected(_)) => unreachable!("no rejection here"),
+        }
+    }
+
+    fn read<T>(
+        &self,
+        f: impl FnOnce(&Transaction) -> Result<T, StoreError>,
+    ) -> Result<T, StoreError> {
+        self.run(TransactionBehavior::Deferred, f)
+    }
+}
+
 impl Store for SqliteStore {
     async fn device(&self) -> Result<DeviceId, StoreError> {
         Ok(self.device)
@@ -283,23 +540,47 @@ impl Store for SqliteStore {
         pt: u64,
         changes: &[LocalChange],
     ) -> Result<Vec<Write>, ApplyError> {
-        let _ = (pt, changes);
-        todo!("T-9: apply_local — BEGIN IMMEDIATE, rebuild + stamp_local")
+        // `stamp_local` on an empty list returns a meaningless `K'`.
+        if changes.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.exec(TransactionBehavior::Immediate, |tx| {
+            let k = clock(tx)?;
+            let known = known(tx, changes.iter().map(|c| c.record.clone()))?;
+            let mut log = rebuild(self.device, k, &known).map_err(StoreError::Corrupted)?;
+            let (writes, k) = stamp_local(&mut log, pt, changes).map_err(ApplyError::Rejected)?;
+            for w in &writes {
+                insert(tx, w)?;
+            }
+            set_clock(tx, k)?;
+            Ok(writes)
+        })
     }
 
     async fn apply(&self, batch: &[Write]) -> Result<Report, ApplyError> {
-        let _ = batch;
-        todo!("T-9: apply — BEGIN IMMEDIATE, rebuild + receive")
+        self.exec(TransactionBehavior::Immediate, |tx| {
+            let k = clock(tx)?;
+            let known = known(tx, batch.iter().map(|w| w.record.clone()))?;
+            let mut log = rebuild(self.device, k, &known).map_err(StoreError::Corrupted)?;
+            let got = receive(self.device, &mut log, k, batch).map_err(ApplyError::Rejected)?;
+            for w in &got.new {
+                insert(tx, w)?;
+            }
+            set_clock(tx, got.clock)?;
+            Ok(got.report)
+        })
     }
 
     async fn writes_of(&self, record: &RecordId) -> Result<Vec<Write>, StoreError> {
-        let _ = record;
-        todo!("T-9: writes_of — one BEGIN DEFERRED")
+        self.read(|tx| Ok(log_of(self.device, &load_record(tx, record)?)?.writes()))
     }
 
     async fn state(&self, record: &RecordId) -> Result<Option<RecordState>, StoreError> {
-        let _ = record;
-        todo!("T-9: state — one BEGIN DEFERRED")
+        self.read(|tx| {
+            Ok(log_of(self.device, &load_record(tx, record)?)?
+                .projection()
+                .remove(record))
+        })
     }
 
     async fn records(
@@ -307,23 +588,41 @@ impl Store for SqliteStore {
         module: &str,
         category: &str,
     ) -> Result<Vec<(RecordId, RecordState)>, StoreError> {
-        let _ = (module, category);
-        todo!("T-9: records — one BEGIN DEFERRED")
+        self.read(|tx| {
+            let rows = load(
+                tx,
+                "WHERE module = ?1 AND category = ?2",
+                (module.as_bytes(), category.as_bytes()),
+            )?;
+            let writes: Vec<Write> = rows.into_iter().map(|(_, w)| w).collect();
+            Ok(log_of(self.device, &writes)?
+                .projection()
+                .into_iter()
+                .collect())
+        })
     }
 
     async fn writes_since(&self, from: Position) -> Result<Vec<(Position, Write)>, StoreError> {
-        let _ = from;
-        todo!("T-9: writes_since — decode and validate each row")
+        let from = i64::try_from(from.0).unwrap_or(i64::MAX);
+        self.read(|tx| load(tx, "WHERE pos > ?1", [from]))
     }
 
     async fn watermark(&self, peer: DeviceId) -> Result<Option<Watermark>, StoreError> {
-        let _ = peer;
-        todo!("T-9: watermark")
+        self.read(|tx| mark(tx, peer))
     }
 
     async fn advance_watermark(&self, peer: DeviceId, to: Watermark) -> Result<(), StoreError> {
-        let _ = (peer, to);
-        todo!("T-9: advance_watermark — max")
+        self.run(TransactionBehavior::Immediate, |tx| {
+            let to = mark(tx, peer)?.map_or(to, |m| m.max(to));
+            let mut b = to.0.to_be_bytes().to_vec();
+            b.extend(to.1.to_be_bytes());
+            tx.execute(
+                "INSERT OR REPLACE INTO watermarks (peer, mark) VALUES (?1, ?2)",
+                (&peer.0[..], b),
+            )
+            .map_err(map)?;
+            Ok(())
+        })
     }
 }
 
