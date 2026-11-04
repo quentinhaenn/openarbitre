@@ -2,7 +2,7 @@
   "feature": "ST-03 — Action catalogue, derived CLI, exit codes",
   "started_at": "2026-11-04T00:00:00+00:00",
   "source": ".ctdd/cadre/04_plan.md § ST-03",
-  "current_phase": 4,
+  "current_phase": 5,
   "phases": {
     "1_story": {
       "status": "done",
@@ -17,8 +17,11 @@
       "file": null
     },
     "4_plan": {
-      "status": "pending",
-      "file": null
+      "status": "done",
+      "file": ".ctdd/stories/ST-03/04_plan.md",
+      "version": 1,
+      "zones": ".ctdd/stories/ST-03/zones.toml",
+      "provisional": "Q-B (a) applied on recommendation, revisable; plan questions Q-P1 to Q-P4 open with recommendations"
     },
     "5_da": {
       "status": "pending",
