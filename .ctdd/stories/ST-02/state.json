@@ -2,7 +2,7 @@
   "feature": "ST-02 — Persistence: async Store port and SQLite adapter",
   "started_at": "2026-11-04T11:58:30+00:00",
   "source": ".ctdd/cadre/04_plan.md § ST-02",
-  "current_phase": 6,
+  "current_phase": 7,
   "phases": {
     "1_story": {
       "status": "done",
@@ -27,11 +27,11 @@
       "iteration": 2
     },
     "6_skeleton": {
-      "status": "in_progress",
-      "file": null
+      "status": "done",
+      "file": ".ctdd/stories/ST-02/06_skeleton.md"
     },
     "7_implementation": {
-      "status": "pending",
+      "status": "in_progress",
       "file": null
     },
     "8_review": {
