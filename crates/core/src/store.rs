@@ -1,10 +1,11 @@
 //! `Store` port, its errors and the pure store logic shared by every adapter (ST-02 archi).
 
 use alloc::boxed::Box;
+use alloc::collections::BTreeSet;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::hlc::{DeviceId, Stamp};
+use crate::hlc::{DeviceId, HybridClock, Stamp};
 use crate::merge::{Log, RecordState, Report, WriteError};
 use crate::write::{Author, BatchError, Change, RecordId, Target, Write};
 
@@ -49,14 +50,19 @@ pub enum StoreError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Damage {
     /// Undecodable or fails `validate`; the adapter fills in the position.
-    StoredWrite { position: Option<Position> },
+    StoredWrite {
+        position: Option<Position>,
+    },
     /// Missing, undecodable, or `K` below a stored stamp on `(l, c)`.
     ClockState,
     DeviceId,
     Layout,
     NotAStore,
     /// Two contents for one identity stamped by the local device (Q-A (b)); boxed to keep errors small.
-    LocalIdentityPair { target: Box<Target>, stamp: Stamp },
+    LocalIdentityPair {
+        target: Box<Target>,
+        stamp: Stamp,
+    },
     Engine(String),
 }
 
@@ -73,9 +79,14 @@ pub enum Cause {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Rejection {
     Batch(BatchError),
-    Local { index: usize, error: WriteError },
+    Local {
+        index: usize,
+        error: WriteError,
+    },
     /// Q-A guard: index of the first batch write of the reused local identity.
-    LocalIdentityReused { index: usize },
+    LocalIdentityReused {
+        index: usize,
+    },
 }
 
 /// Error of a write operation: an input rejection or a storage error.
@@ -142,13 +153,36 @@ pub trait Store {
 /// above `K` on `(l, c)` → `ClockState`; a local-device anomaly → `LocalIdentityPair`.
 /// Refs: T-4, GAP-ST02-1, RG-ST02-1.6, RG-ST02-7.2, Q-A (b).
 pub fn rebuild(device: DeviceId, k: ClockState, known: &[Write]) -> Result<Log, Damage> {
-    let _ = (device, k, known);
-    todo!("T-4: rebuild — RG-ST02-1.6, RG-ST02-7.2, Q-A (b)")
+    let mut clock = HybridClock::new(device);
+    clock.receive(&Stamp {
+        l: k.l,
+        c: k.c,
+        a: device,
+    });
+    let mut log = Log::with_clock(clock);
+    log.merge(known)
+        .map_err(|_| Damage::StoredWrite { position: None })?;
+    if known.iter().any(|w| {
+        ClockState {
+            l: w.stamp.l,
+            c: w.stamp.c,
+        } > k
+    }) {
+        return Err(Damage::ClockState);
+    }
+    match log.anomalies().into_iter().find(|a| a.stamp.a == device) {
+        Some(a) => Err(Damage::LocalIdentityPair {
+            target: Box::new(a.target),
+            stamp: a.stamp,
+        }),
+        None => Ok(log),
+    }
 }
 
 /// Stamps `changes` in list order through `Log::write` (A-1); returns the writes and `K'`.
 ///
-/// Post: stamps strictly increasing, `a = D`, `K' = (sₙ.l, sₙ.c)`.
+/// Post: stamps strictly increasing, `a = D`, `K' = (sₙ.l, sₙ.c)`; empty list → `K'` is
+/// meaningless (adapters short-circuit it).
 /// Error: first faulty change → `Rejection::Local`, `log` unchanged.
 /// Refs: T-4, RG-ST02-3.1, 3.2, RG-ST02-6.5.
 pub fn stamp_local(
@@ -156,8 +190,22 @@ pub fn stamp_local(
     pt: u64,
     changes: &[LocalChange],
 ) -> Result<(Vec<Write>, ClockState), Rejection> {
-    let _ = (log, pt, changes);
-    todo!("T-4: stamp_local — RG-ST02-3.1, 3.2, 6.5")
+    let mut work = log.clone();
+    let mut writes = Vec::with_capacity(changes.len());
+    for (index, c) in changes.iter().enumerate() {
+        let w = work
+            .write(pt, c.record.clone(), c.change.clone(), c.author)
+            .map_err(|error| Rejection::Local { index, error })?;
+        writes.push(w);
+    }
+    let clock = writes
+        .last()
+        .map_or_else(ClockState::default, |w| ClockState {
+            l: w.stamp.l,
+            c: w.stamp.c,
+        });
+    *log = work;
+    Ok((writes, clock))
 }
 
 /// Merges a received batch: `new` = unknown writes, deduplicated, batch order;
@@ -171,6 +219,34 @@ pub fn receive(
     k: ClockState,
     batch: &[Write],
 ) -> Result<Received, Rejection> {
-    let _ = (device, log, k, batch);
-    todo!("T-5: receive — RG-ST02-5.3, Q-A guard")
+    let mut known: BTreeSet<Write> = log.writes().into_iter().collect();
+    let mut work = log.clone();
+    let report = work.merge(batch).map_err(Rejection::Batch)?;
+    if let Some(index) = report
+        .new_anomalies
+        .iter()
+        .filter(|a| a.stamp.a == device)
+        .filter_map(|a| {
+            batch
+                .iter()
+                .position(|w| w.target() == a.target && w.stamp == a.stamp)
+        })
+        .min()
+    {
+        return Err(Rejection::LocalIdentityReused { index });
+    }
+    let new = batch
+        .iter()
+        .filter(|w| known.insert((*w).clone()))
+        .cloned()
+        .collect();
+    let clock = batch
+        .iter()
+        .map(|w| ClockState {
+            l: w.stamp.l,
+            c: w.stamp.c,
+        })
+        .fold(k, ClockState::max);
+    *log = work;
+    Ok(Received { report, new, clock })
 }
