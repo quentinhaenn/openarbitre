@@ -4,9 +4,10 @@
 use std::ffi::{OsStr, OsString};
 use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::task::{Context, Poll, Waker};
 
-use arbitre_core::{ActionError, ApplyError, StoreError};
-use arbitre_sqlite::SqliteStore;
+use arbitre_core::{ActionError, ApplyError, Cause, StoreError};
+use arbitre_sqlite::{Options, SqliteStore};
 
 /// Store file path: `flag` > non-empty `ARBITRE_STORE` > platform default (RG-ST03-5.1).
 /// `env` reads a variable; `os` is `std::env::consts::OS` (no `cfg` here, plan P-13).
@@ -17,33 +18,83 @@ pub fn location(
     env: impl Fn(&str) -> Option<OsString>,
     os: &str,
 ) -> Result<PathBuf, ActionError> {
-    let _ = (flag, env, os);
-    todo!("T-4: location — RG-ST03-5.1, PROP-ST03-2")
+    if let Some(f) = flag {
+        return Ok(PathBuf::from(f));
+    }
+    let set = |k: &str| env(k).filter(|v| !v.is_empty());
+    if let Some(p) = set("ARBITRE_STORE") {
+        return Ok(PathBuf::from(p));
+    }
+    let no_default = || {
+        ActionError::tool_error(
+            "no_default_store",
+            "no store location: pass --store or set ARBITRE_STORE",
+        )
+    };
+    let home = set("HOME").map(PathBuf::from);
+    let base = match os {
+        "windows" => return Err(no_default()),
+        "macos" => home
+            .ok_or_else(no_default)?
+            .join("Library/Application Support"),
+        _ => match set("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+        {
+            Some(x) => x,
+            None => home.ok_or_else(no_default)?.join(".local/share"),
+        },
+    };
+    Ok(base.join("arbitre").join("arbitre.db"))
 }
 
 /// Creates missing parent directories, then opens with default options (plan R-4).
 /// Failures map through `map_store`; an uncreatable directory → `storage_unavailable`.
 pub fn open(path: &Path) -> Result<SqliteStore, ActionError> {
-    let _ = path;
-    todo!("T-4: open — RG-ST03-5.2, 5.3")
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| {
+            ActionError::tool_error(
+                "storage_unavailable",
+                format!("cannot create {}: {e}", dir.display()),
+            )
+        })?;
+    }
+    SqliteStore::open(path, &Options::default()).map_err(map_store)
 }
 
 /// `StoreError` → `ToolError` with the ids of RG-ST03-3.3.
 pub fn map_store(e: StoreError) -> ActionError {
-    let _ = e;
-    todo!("T-4: map_store — RG-ST03-3.3")
+    let (id, msg) = match e {
+        StoreError::StorageFull => ("storage_full", "storage is full".to_string()),
+        StoreError::Corrupted(d) => ("storage_corrupted", format!("store damaged: {d:?}")),
+        StoreError::Unavailable(Cause::Busy) => ("storage_busy", "store is busy".to_string()),
+        StoreError::Unavailable(c @ Cause::IncompatibleVersion { .. }) => {
+            ("storage_incompatible_version", format!("{c:?}"))
+        }
+        StoreError::Unavailable(c) => ("storage_unavailable", format!("store unavailable: {c:?}")),
+    };
+    ActionError::tool_error(id, msg)
 }
 
 /// `ApplyError` → `ToolError`: `Rejected` → `write_rejected`, `Store` → `map_store`.
 pub fn map_apply(e: ApplyError) -> ActionError {
-    let _ = e;
-    todo!("T-4: map_apply — RG-ST03-3.3")
+    match e {
+        ApplyError::Rejected(r) => {
+            ActionError::tool_error("write_rejected", format!("write rejected: {r:?}"))
+        }
+        ApplyError::Store(s) => map_store(s),
+    }
 }
 
 /// One poll on a no-op waker (ST-02 futures are ready, spike S1-A); `Pending` → `internal_error`.
 pub fn block_on<F: Future>(fut: F) -> Result<F::Output, ActionError> {
-    drop(fut);
-    todo!("T-4: block_on — specs architecture notes")
+    match std::pin::pin!(fut).poll(&mut Context::from_waker(Waker::noop())) {
+        Poll::Ready(v) => Ok(v),
+        Poll::Pending => Err(ActionError::tool_error(
+            "internal_error",
+            "store future not ready",
+        )),
+    }
 }
 
 #[cfg(test)]
