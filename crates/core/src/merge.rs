@@ -148,6 +148,14 @@ impl Log {
         }
     }
 
+    /// Empty log driven by a restored clock (GAP-ST02-1, used by `store::rebuild`).
+    pub(crate) fn with_clock(clock: HybridClock) -> Self {
+        Self {
+            clock,
+            writes: BTreeMap::new(),
+        }
+    }
+
     /// Only path of a local write (A-2).
     ///
     /// Pre: none. Validates identifiers **before** issuing (a rejection consumes no stamp).

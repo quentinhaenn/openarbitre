@@ -1,0 +1,4 @@
+# ST-02 zones: format in CONTRIBUTING.md. A file not listed gets Full.
+Full = ["crates/core/src/store.rs"]
+Std = ["crates/core/src/sim_store.rs"]
+Gen = ["crates/sqlite/src/**"]

@@ -49,6 +49,13 @@ Everything public in this repository is written in English: code, comments, mess
 | liste navigateur | browser list |
 | juge | judge |
 | rouge / vert | red / green |
+| magasin, port `Store` | store, `Store` |
+| appliquer (écriture locale) | `Store::apply_local` |
+| `Store::appliquer` (lot reçu) | `Store::apply` |
+| `ecritures_depuis`, position | `Store::writes_since`, `Position` |
+| filigrane (par pair) | `Watermark`, `Store::watermark`, `Store::advance_watermark` |
+| état d'horloge | `ClockState` |
+| `StockagePlein` / `Corrompu` / `Indisponible` | `StoreError::StorageFull` / `Corrupted` / `Unavailable` |
 
 ## `Cargo.lock`
 

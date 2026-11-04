@@ -11,9 +11,15 @@ extern crate alloc;
 mod clock;
 mod hlc;
 mod merge;
+#[cfg(feature = "sim")]
+mod sim_store;
+mod store;
 mod write;
 
 pub use clock::*;
 pub use hlc::*;
 pub use merge::*;
+#[cfg(feature = "sim")]
+pub use sim_store::*;
+pub use store::*;
 pub use write::*;

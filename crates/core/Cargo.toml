@@ -20,3 +20,7 @@ required-features = ["sim"]
 [[test]]
 name = "convergence"
 required-features = ["sim"]
+
+[[test]]
+name = "store"
+required-features = ["sim"]
