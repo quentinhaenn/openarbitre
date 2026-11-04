@@ -552,6 +552,27 @@ fn clock_state_follows_the_last_stamp() {
     assert_ne!(s.clock_state(), ClockState::default());
 }
 
+/// Q-R1 (b): a no-op write on full storage succeeds (`Store` trait doc).
+#[test]
+fn no_op_writes_on_full_storage_succeed() {
+    let s = sim();
+    let batch = [write(
+        record("r"),
+        field("f", "a"),
+        stamp(1_000_000, 0, PEER),
+    )];
+    ready(s.apply(&batch)).unwrap();
+    ready(s.advance_watermark(dev(PEER), Watermark(5, 0))).unwrap();
+    let before = sigma(&s);
+    s.full_after(0);
+    ready(s.apply(&batch)).expect("stored batch");
+    ready(s.apply(&[])).expect("empty batch");
+    for to in [Watermark(5, 0), Watermark(1, 0)] {
+        ready(s.advance_watermark(dev(PEER), to)).expect("no-op watermark");
+    }
+    assert_eq!(sigma(&s), before);
+}
+
 /// US-2 case 8: received batch on full storage, `K` unchanged.
 #[test]
 fn us2_case8_received_batch_on_full_storage() {

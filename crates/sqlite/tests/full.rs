@@ -314,6 +314,28 @@ fn full_at_first_opening() {
     assert_eq!(block_on(s.writes_since(Position(0))).unwrap(), vec![]);
 }
 
+/// Q-R1 (b): a no-op write on full storage succeeds, `Σ` unchanged.
+#[test]
+fn no_op_writes_succeed() {
+    let vfs = FullVfs::register("noop");
+    let path = dir().join("store.db");
+    let s = build(&vfs, &path, &[3], 40);
+    let stored: Vec<Write> = block_on(s.writes_since(Position(0)))
+        .unwrap()
+        .into_iter()
+        .map(|(_, w)| w)
+        .collect();
+    let expected = sigma(&s, &path);
+    vfs.set_budget(0);
+    block_on(s.apply(&stored)).expect("stored batch");
+    block_on(s.apply(&[])).expect("empty batch");
+    for to in [Watermark(3, 0), Watermark(1, 0)] {
+        block_on(s.advance_watermark(peer(1), to)).expect("no-op watermark");
+    }
+    vfs.unlimited();
+    assert_eq!(sigma(&s, &path), expected);
+}
+
 /// US-2 case 6: full storage, existing store -> open and read give the data.
 #[test]
 fn full_existing_store_reads() {
