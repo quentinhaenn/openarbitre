@@ -177,9 +177,12 @@ fn truncation_is_refused() {
     let mut rng = Rng::new(seed());
     println!("seed {}", seed());
     for _ in 0..20 {
-        // Pages 1-6 only: a cut inside the last page (`watermarks` root) reads back as an
-        // empty zero page, silently (reported for Q-P6).
-        let len = 1 + rng.below(full.len() as u64 - 4096 - 1) as usize;
+        // Any page, the last one included (Q-P6: `quick_check` at open); a cut that only drops
+        // zero bytes loses nothing.
+        let len = 1 + rng.below(full.len() as u64 - 1) as usize;
+        if full[len..].iter().all(|&b| b == 0) {
+            continue;
+        }
         let (d2, p) = build("dmg-trunc-case");
         std::fs::OpenOptions::new()
             .write(true)

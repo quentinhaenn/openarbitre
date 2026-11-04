@@ -233,6 +233,17 @@ fn inspect(conn: &mut Connection) -> Result<Option<DeviceId>, StoreError> {
     }
     let device = DeviceId(device);
     check_stored(&tx, device)?;
+    // Page-level damage the row checks cannot see (Q-P6), last so row damage keeps its precise variant.
+    let report = tx
+        .prepare("PRAGMA quick_check")
+        .map_err(map)?
+        .query_map([], |r| r.get::<_, String>(0))
+        .map_err(map)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(map)?;
+    if report != ["ok"] {
+        return Err(StoreError::Corrupted(Damage::Engine(report.join("; "))));
+    }
     Ok(Some(device))
 }
 

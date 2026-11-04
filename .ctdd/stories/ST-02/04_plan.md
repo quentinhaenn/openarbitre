@@ -515,4 +515,5 @@ The recommendation applies by default if Quentin says nothing. It does not block
 Binding; override the open questions above.
 
 - **Q-P5 → (a)** (DA v2 F-19 / F-17): every stored write is checked when the store opens (decode + validate, plus the local-identity-pair query), so a damaged store refuses to open in every process. Budget: if the open-time check exceeds 100 ms at 10,000 writes (measured in T-15), stop and ask Quentin to choose between narrowing Q-4 to per-handle poisoning and an incremental check.
+- **Q-P6 → yes**: `PRAGMA quick_check` runs at open, after the row checks so row damage keeps its precise variant (measured locally: open check 63 ms incl. 12.5 ms quick_check at 10,000 writes). The truncation test now covers the last page and is red without it.
 - **Q-P1 → (b), Q-P2 → (a), Q-P3 → layout fix, Q-P4 → Std**: taken on the recommendations; Quentin may still revise them before the ST-02 PR is merged.
