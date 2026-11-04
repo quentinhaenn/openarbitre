@@ -1,0 +1,42 @@
+{
+  "feature": "ST-03 — Action catalogue, derived CLI, exit codes",
+  "started_at": "2026-11-04T00:00:00+00:00",
+  "source": ".ctdd/cadre/04_plan.md § ST-03",
+  "current_phase": 2,
+  "phases": {
+    "1_story": {
+      "status": "done",
+      "file": ".ctdd/stories/ST-03/01_story.md"
+    },
+    "2_specs": {
+      "status": "pending",
+      "file": null
+    },
+    "3_archi": {
+      "status": "skipped (supporting zone; architectural notes folded into specs)",
+      "file": null
+    },
+    "4_plan": {
+      "status": "pending",
+      "file": null
+    },
+    "5_da": {
+      "status": "pending",
+      "file": null
+    },
+    "6_skeleton": {
+      "status": "pending",
+      "file": null
+    },
+    "7_implementation": {
+      "status": "pending",
+      "file": null
+    },
+    "8_review": {
+      "status": "pending",
+      "file": null
+    }
+  },
+  "ddd_zone": "supporting",
+  "da_max_iterations": 1
+}
