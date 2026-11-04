@@ -31,13 +31,17 @@ fn shipped() -> Vec<Wiring> {
 
 /// Shipped modules, plus the test module with `test-actions`.
 pub fn all() -> Vec<Wiring> {
-    todo!("T-5: all — shipped() + test::wirings() under test-actions")
+    #[allow(unused_mut)]
+    let mut all = shipped();
+    #[cfg(feature = "test-actions")]
+    all.extend(test::wirings());
+    all
 }
 
 /// Builds the catalogue from `(id, descriptors())` of each wiring (RG-ST03-4.6).
 pub fn catalog(wirings: &[Wiring]) -> Result<Catalog, CatalogError> {
-    let _ = wirings;
-    todo!("T-5: catalog — RG-ST03-4.6")
+    let modules: Vec<_> = wirings.iter().map(|w| (w.id, (w.descriptors)())).collect();
+    Catalog::build(&modules)
 }
 
 #[cfg(test)]
