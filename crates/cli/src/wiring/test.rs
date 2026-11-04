@@ -4,9 +4,13 @@
 use std::collections::BTreeSet;
 
 use arbitre_core::value::Value;
-use arbitre_core::{ActionDescriptor, ActionError, LoggedAs, Property, Schema};
+use arbitre_core::{
+    ActionDescriptor, ActionError, Change, Field, LocalChange, LoggedAs, Position, Property,
+    RecordId, Schema, Store, Value as WriteValue,
+};
 
 use super::{Context, Wiring};
+use crate::store::{block_on, map_apply, map_store};
 
 /// Module `test`, and `arbitre.test-foundation` under the foundation id `arbitre`.
 pub fn wirings() -> Vec<Wiring> {
@@ -184,6 +188,79 @@ fn foundation() -> Vec<ActionDescriptor> {
 /// Runs one test action. `test.refuse` attaches `{"item":"x"}`; `test.write --fail` acts
 /// before `apply_local`; `test.echo` returns its input plus `remark`.
 fn execute(name: &str, input: Value, ctx: &Context<'_>) -> Result<Value, ActionError> {
-    let _ = (name, input, ctx);
-    todo!("T-5: test module execution")
+    let object = |kv: &[(&str, Value)]| {
+        Value::Object(kv.iter().map(|(k, v)| (k.to_string(), v.clone())).collect())
+    };
+    match name {
+        "test.echo" => {
+            let Value::Object(mut o) = input else {
+                unreachable!("input conforms to an object schema")
+            };
+            o.insert("remark".into(), Value::Str("echoed".into()));
+            Ok(Value::Object(o))
+        }
+        "test.noisy" => {
+            eprintln!("diagnostic on standard error");
+            Ok(object(&[]))
+        }
+        "test.refuse" => Err(ActionError::refusal("refused", "refused on purpose")
+            .with_data(object(&[("item", Value::Str("x".into()))]))),
+        "test.fail" => Err(ActionError::tool_error("failed", "failed on purpose")),
+        "test.not-enabled" => Err(ActionError::module_not_enabled(
+            "module_not_enabled",
+            "module test is not enabled",
+        )),
+        "test.panic" => panic!("test.panic"),
+        "test.write" => write(&input, ctx),
+        "test.read" => read(ctx),
+        // noop, bad-output (misses its required key), group, group.child, foundation
+        _ => Ok(object(&[])),
+    }
+}
+
+fn write(input: &Value, ctx: &Context<'_>) -> Result<Value, ActionError> {
+    let Value::Object(o) = input else {
+        unreachable!("input conforms to an object schema")
+    };
+    let Some(Value::Str(key)) = o.get("key") else {
+        unreachable!("key is required")
+    };
+    match o.get("fail") {
+        Some(Value::Str(m)) if m == "refusal" => {
+            return Err(ActionError::refusal("refused", "refused before writing"));
+        }
+        Some(Value::Str(m)) if m == "tool-error" => {
+            return Err(ActionError::tool_error("failed", "failed before writing"));
+        }
+        Some(Value::Str(m)) if m == "panic" => panic!("test.write --fail panic"),
+        _ => {}
+    }
+    let change = LocalChange {
+        record: RecordId {
+            module: "test".into(),
+            category: "item".into(),
+            id: key.clone(),
+        },
+        change: Change::Field {
+            name: Field("v".into()),
+            value: WriteValue(key.as_bytes().to_vec()),
+        },
+        author: ctx.author,
+    };
+    block_on(ctx.store.apply_local(ctx.pt, &[change]))?.map_err(map_apply)?;
+    Ok(Value::Object(
+        [("key".to_string(), Value::Str(key.clone()))].into(),
+    ))
+}
+
+fn read(ctx: &Context<'_>) -> Result<Value, ActionError> {
+    let writes = block_on(ctx.store.writes_since(Position::START))?.map_err(map_store)?;
+    let keys = writes
+        .into_iter()
+        .filter(|(_, w)| w.record.module == "test")
+        .map(|(_, w)| Value::Str(w.record.id))
+        .collect();
+    Ok(Value::Object(
+        [("keys".to_string(), Value::List(keys))].into(),
+    ))
 }
