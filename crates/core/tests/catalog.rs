@@ -677,6 +677,44 @@ fn empty_object_json_schema() {
 }
 
 #[test]
+fn string_bounds_equal_accepted() {
+    let eq = Schema::String {
+        min_length: Some(2),
+        max_length: Some(2),
+    };
+    build(&[(
+        "test",
+        vec![with_input("test.echo", vec![prop("text", true, eq)])],
+    )])
+    .expect("minLength = maxLength");
+}
+
+#[test]
+fn nested_output_properties_checked() {
+    let bad = Schema::Object(vec![prop("Bad", true, Schema::Boolean)]);
+    refused(
+        &[(
+            "test",
+            vec![with_output("test.read", vec![prop("sub", true, bad)])],
+        )],
+        &["test.read"],
+    );
+}
+
+#[test]
+fn command_path_drops_arbitre_only_when_first() {
+    assert_eq!(command_path("test.arbitre"), ["test", "arbitre"]);
+}
+
+#[test]
+fn date_shape_edges() {
+    assert_eq!(parse_text(&Schema::Date, "2023-02-28"), Ok(s("2023-02-28")));
+    for bad in ["2026/01/01", "2026-01/01", "2026/01-01", "2026-01-011"] {
+        assert!(parse_text(&Schema::Date, bad).is_err(), "{bad:?}");
+    }
+}
+
+#[test]
 fn required_sorted_by_name() {
     let d = with_input(
         "test.echo",
