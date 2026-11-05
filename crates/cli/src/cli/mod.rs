@@ -202,7 +202,7 @@ mod bare_root {
 
     #[test]
     fn bare_root_is_usage_even_with_an_empty_catalogue() {
-        let catalog = Catalog::build(&[]).unwrap();
+        let catalog = Catalog::build(&[], &[]).unwrap();
         for args in [&["arbitre"][..], &["arbitre", "--json"]] {
             let e = command(&catalog).try_get_matches_from(args).unwrap_err();
             assert_eq!(usage_error(e).unwrap_err().id(), "missing_command");

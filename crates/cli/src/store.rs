@@ -62,6 +62,14 @@ pub fn open(path: &Path) -> Result<SqliteStore, ActionError> {
     SqliteStore::open(path, &Options::default()).map_err(map_store)
 }
 
+/// Opens `path` only if it already holds a store, never writing (RG-ST04-2.3; plan P-8):
+/// absent or empty file ⇒ `None`; header not SQLite with application id `ARBT` ⇒
+/// `storage_corrupted`; otherwise `SqliteStore::open`.
+#[expect(dead_code, reason = "called from main.rs by T-4")]
+pub fn open_existing(path: &Path) -> Result<Option<SqliteStore>, ActionError> {
+    todo!("T-4 {}", path.display())
+}
+
 /// `StoreError` → `ToolError` with the ids of RG-ST03-3.3.
 pub fn map_store(e: StoreError) -> ActionError {
     let (id, msg) = match e {
@@ -88,7 +96,6 @@ pub fn map_apply(e: ApplyError) -> ActionError {
 }
 
 /// One poll on a no-op waker (ST-02 futures are ready, spike S1-A); `Pending` → `internal_error`.
-#[cfg_attr(not(feature = "test-actions"), expect(dead_code))]
 pub fn block_on<F: Future>(fut: F) -> Result<F::Output, ActionError> {
     match std::pin::pin!(fut).poll(&mut Context::from_waker(Waker::noop())) {
         Poll::Ready(v) => Ok(v),

@@ -1,5 +1,11 @@
-//! Shared by the ST-03 acceptance tests: spawn the binary in a clean environment, read stores.
+//! Shared by the acceptance tests: spawn the binary in a clean environment, read stores.
+//! ST-04 tooling (frozen after ST-04; extension point: `surfaces/` only): `network`,
+//! `surfaces`, `conformance`.
 #![allow(dead_code)]
+
+pub mod conformance;
+pub mod network;
+pub mod surfaces;
 
 use std::future::Future;
 use std::path::{Path, PathBuf};

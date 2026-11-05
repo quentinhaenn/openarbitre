@@ -352,10 +352,10 @@ fn sub_commands_listed_in_name_order() {
         "group",
         "noisy",
         "noop",
-        "not-enabled",
         "panic",
         "read",
         "refuse",
+        "signal",
         "write",
     ];
     let ps: Vec<usize> = names.iter().map(|n| pos(n)).collect();

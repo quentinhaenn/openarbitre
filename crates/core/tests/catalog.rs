@@ -67,8 +67,12 @@ fn with_output(name: &str, props: Vec<Property>) -> ActionDescriptor {
     }
 }
 
+/// ST-03 cases, written with the foundation as module `arbitre`, split for ST-04's signature.
 fn build(modules: &[(&str, Vec<ActionDescriptor>)]) -> Result<Catalog, CatalogError> {
-    Catalog::build(modules)
+    let (foundation, rest): (Vec<_>, Vec<_>) =
+        modules.iter().cloned().partition(|(m, _)| *m == "arbitre");
+    let foundation: Vec<_> = foundation.into_iter().flat_map(|(_, l)| l).collect();
+    Catalog::build(&foundation, &rest)
 }
 
 #[track_caller]

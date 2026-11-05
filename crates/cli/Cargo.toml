@@ -9,6 +9,8 @@ rust-version.workspace = true
 arbitre-core = { version = "0.1.0", path = "../core" }
 arbitre-sqlite = { version = "0.1.0", path = "../sqlite" }
 clap = { version = "4.6.7", features = ["string"] }
+# System time zone for the native clock (ST-04 plan P-12).
+jiff = { workspace = true, features = ["std", "tz-system"] }
 
 [dev-dependencies]
 # Independent JSON parser for acceptance tests (ST-03 plan P-2).
@@ -33,4 +35,20 @@ required-features = ["test-actions"]
 
 [[test]]
 name = "location"
+required-features = ["test-actions"]
+
+[[test]]
+name = "modules"
+required-features = ["test-actions"]
+
+[[test]]
+name = "signals"
+required-features = ["test-actions"]
+
+[[test]]
+name = "network"
+required-features = ["test-actions"]
+
+[[test]]
+name = "conformance"
 required-features = ["test-actions"]

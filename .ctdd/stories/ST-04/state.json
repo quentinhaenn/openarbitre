@@ -2,7 +2,7 @@
   "feature": "ST-04 — Modules you can enable, kept apart, with one generic conformance test",
   "started_at": "2026-11-05T00:00:00+00:00",
   "source": ".ctdd/cadre/04_plan.md § ST-04",
-  "current_phase": 6,
+  "current_phase": 7,
   "phases": {
     "1_story": {
       "status": "done",
@@ -50,8 +50,9 @@
       ]
     },
     "6_skeleton": {
-      "status": "pending",
-      "file": null
+      "status": "done",
+      "file": ".ctdd/stories/ST-04/06_skeleton.md",
+      "note": "38 red (37 new + 1 moved ST-03 row), 3 new green; built on st-03/story (PR #8 not merged)"
     },
     "7_implementation": {
       "status": "pending",

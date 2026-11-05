@@ -1,5 +1,7 @@
 mod cli;
+mod clock;
 mod modules;
+mod signals;
 mod store;
 
 use std::ffi::OsString;
@@ -7,12 +9,16 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use arbitre_core::{
-    ActionDescriptor, ActionError, Author, Category, conforms_output, document, encode, render,
+    ActionDescriptor, ActionError, Author, Category, Context, Module, ModuleStore, conforms_output,
+    document, encode, render,
 };
+use arbitre_sqlite::SqliteStore;
 use clap::ArgMatches;
 
 use cli::Outcome;
-use modules::{Context, Wiring};
+use clock::SystemClock;
+use modules::Modules;
+use modules::foundation::{self, Env};
 
 /// What to write and how to exit.
 struct Done {
@@ -56,14 +62,16 @@ fn settle(action: &ActionDescriptor, r: Outcome) -> Outcome {
     }
 }
 
-fn wiring_of<'a>(wirings: &'a [Wiring], action: &str) -> &'a Wiring {
-    wirings
+/// The toggleable module owning `action`; `None` for the foundation.
+fn module_of<'a>(modules: &'a Modules, action: &str) -> Option<&'a dyn Module<SqliteStore>> {
+    let first = action.split('.').next();
+    modules
         .iter()
-        .find(|w| action.split('.').next() == Some(w.id))
-        .expect("every action belongs to a wiring")
+        .find(|m| first == Some(m.id()))
+        .map(|m| m.as_ref())
 }
 
-fn execute(action: &ActionDescriptor, leaf: &ArgMatches, wirings: &[Wiring]) -> Outcome {
+fn execute(action: &ActionDescriptor, leaf: &ArgMatches, modules: &Modules) -> Outcome {
     let flag = leaf.get_one::<PathBuf>("store");
     let path = store::location(
         flag.map(|p| p.as_os_str()),
@@ -71,26 +79,36 @@ fn execute(action: &ActionDescriptor, leaf: &ArgMatches, wirings: &[Wiring]) -> 
         std::env::consts::OS,
     )?;
     let store = store::open(&path)?;
-    let wiring = wiring_of(wirings, &action.name);
-    let pt = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("system clock before 1970")
-        .as_millis();
-    let ctx = Context {
-        store: &store,
-        pt: u64::try_from(pt).expect("system clock beyond u64 ms"),
-        author: Author::CliUser,
+    let clock = SystemClock;
+    let author = Author::CliUser;
+    let input = cli::input(leaf, action);
+    let r = match module_of(modules, &action.name) {
+        None => {
+            let env = Env {
+                store: &store,
+                clock: &clock,
+                author,
+                modules,
+            };
+            foundation::execute(&action.name, input, &env)
+        }
+        Some(m) => {
+            let ctx = Context {
+                author,
+                clock: &clock,
+                store: ModuleStore::new(&store, m.id(), author, &clock),
+                ai: None,
+            };
+            store::block_on(m.execute(&action.name, input, &ctx)).and_then(|r| r)
+        }
     };
-    settle(
-        action,
-        (wiring.execute)(&action.name, cli::input(leaf, action), &ctx),
-    )
+    settle(action, r)
 }
 
 /// Everything from catalogue to result; the store is dropped on return, before any write.
 fn run(args: &[OsString], json: bool) -> Done {
-    let wirings = modules::all();
-    let catalog = match modules::catalog(&wirings) {
+    let modules = modules::all();
+    let catalog = match modules::catalog(&modules) {
         Ok(c) => c,
         Err(e) => {
             return finish(
@@ -112,7 +130,7 @@ fn run(args: &[OsString], json: bool) -> Done {
         Err(e) => return finish(cli::usage_error(e), json),
     };
     let (action, leaf) = cli::selected(&matches, &catalog);
-    finish(execute(action, leaf, &wirings), json)
+    finish(execute(action, leaf, &modules), json)
 }
 
 fn main() {
@@ -204,21 +222,14 @@ mod tests {
     }
 
     #[test]
-    fn wiring_by_first_segment() {
-        fn d() -> Vec<ActionDescriptor> {
-            vec![]
+    fn module_by_first_segment() {
+        let all = modules::all();
+        assert!(module_of(&all, "arbitre.module.list").is_none());
+        if cfg!(feature = "test-actions") {
+            let m = module_of(&all, "fake-b.put").expect("fake-b");
+            assert_eq!(m.id(), "fake-b");
+            assert!(module_of(&all, "fake-c.put").is_none());
         }
-        fn e(_: &str, v: Value, _: &Context<'_>) -> Result<Value, ActionError> {
-            Ok(v)
-        }
-        let w = |id| Wiring {
-            id,
-            descriptors: d,
-            execute: e,
-        };
-        let all = [w("a"), w("b")];
-        assert_eq!(wiring_of(&all, "b.x.y").id, "b");
-        assert_eq!(wiring_of(&all, "a.x").id, "a");
     }
 
     #[test]

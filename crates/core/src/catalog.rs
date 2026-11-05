@@ -187,14 +187,21 @@ fn check_descriptor(a: &ActionDescriptor, module: &str) -> Result<(), String> {
 }
 
 impl Catalog {
-    /// Builds from `(module id, descriptors)` pairs; refuses every case of RG-ST03-4.6.
-    /// A path may be both an action and a group (Q-B (a)). Module id `arbitre` = foundation.
-    pub fn build(modules: &[(&str, Vec<ActionDescriptor>)]) -> Result<Catalog, CatalogError> {
+    /// Builds from the foundation's descriptors (module `arbitre`) and `(module id,
+    /// descriptors)` pairs; refuses every case of RG-ST03-4.6 and RG-ST04-3.4.
+    /// A path may be both an action and a group (Q-B (a)).
+    pub fn build(
+        foundation: &[ActionDescriptor],
+        modules: &[(&str, Vec<ActionDescriptor>)],
+    ) -> Result<Catalog, CatalogError> {
         let mut names: BTreeMap<&str, &str> = BTreeMap::new();
         let mut paths: BTreeMap<Vec<&str>, &str> = BTreeMap::new();
         let mut ids = BTreeSet::new();
         let mut actions = Vec::new();
-        for (module, list) in modules {
+        let all = core::iter::once(("arbitre", foundation))
+            .chain(modules.iter().map(|(m, list)| (*m, list.as_slice())));
+        // T-2: reserved (`arbitre`, foundation first words) and ill-formed module ids.
+        for (module, list) in all {
             if !ids.insert(module) {
                 return Err(CatalogError {
                     message: format!("module id {module:?} given twice"),
