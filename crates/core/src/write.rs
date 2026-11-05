@@ -20,9 +20,9 @@ pub struct RecordId {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Field(pub String);
 
-/// Value serialized by the module; the core only compares its bytes.
+/// Field value serialized by the module; the core only compares its bytes.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Value(pub Vec<u8>);
+pub struct FieldValue(pub Vec<u8>);
 
 /// Closed list of authors (RG-ST01-4.5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -36,7 +36,7 @@ pub enum Author {
 /// What a write does: set a field or delete the record.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Change {
-    Field { name: Field, value: Value },
+    Field { name: Field, value: FieldValue },
     Delete,
 }
 

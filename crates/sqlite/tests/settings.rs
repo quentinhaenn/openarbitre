@@ -150,8 +150,8 @@ fn foreign_file_is_not_a_store() {
 use std::time::{Duration, Instant};
 
 use arbitre_core::{
-    ApplyError, Author, Change, Field, LocalChange, Position, RecordId, Rejection, Seen, Stamp,
-    TargetKind, Value, Watermark, Write,
+    ApplyError, Author, Change, Field, FieldValue, LocalChange, Position, RecordId, Rejection,
+    Seen, Stamp, TargetKind, Watermark, Write,
 };
 
 fn ready<F: Future>(f: F) -> F::Output {
@@ -174,7 +174,7 @@ fn put(id: &str, v: &[u8]) -> LocalChange {
         record: rec(id),
         change: Change::Field {
             name: Field("f".into()),
-            value: Value(v.to_vec()),
+            value: FieldValue(v.to_vec()),
         },
         author: Author::CliUser,
     }
@@ -380,7 +380,7 @@ fn round_trip_edge_values() {
     };
     w.change = Change::Field {
         name: Field("f".into()),
-        value: Value(vec![0xff, 0, 0xfe]),
+        value: FieldValue(vec![0xff, 0, 0xfe]),
     };
     let older = |l| Stamp {
         l,

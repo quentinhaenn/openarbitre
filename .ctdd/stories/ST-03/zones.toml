@@ -1,0 +1,11 @@
+# ST-03 zones: format in CONTRIBUTING.md. A file not listed gets Full.
+# crates/cli/src/wiring/test.rs stays Gen through ST-01's `crates/cli/src/**`.
+Std = [
+  "crates/core/src/value.rs",
+  "crates/core/src/error.rs",
+  "crates/core/src/catalog.rs",
+  "crates/cli/src/main.rs",
+  "crates/cli/src/modules.rs",
+  "crates/cli/src/store.rs",
+  "crates/cli/src/cli/**",
+]

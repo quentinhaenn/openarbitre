@@ -35,7 +35,7 @@ pub fn record(id: &str) -> RecordId {
 pub fn field(name: &str, value: &str) -> Change {
     Change::Field {
         name: Field(name.into()),
-        value: Value(value.as_bytes().to_vec()),
+        value: FieldValue(value.as_bytes().to_vec()),
     }
 }
 
@@ -368,7 +368,7 @@ mod sim {
             }
     }
 
-    fn rank(w: &Write) -> (Stamp, Target, Option<Value>, Seen, Author) {
+    fn rank(w: &Write) -> (Stamp, Target, Option<FieldValue>, Seen, Author) {
         let value = match &w.change {
             Change::Field { value, .. } => Some(value.clone()),
             Change::Delete => None,

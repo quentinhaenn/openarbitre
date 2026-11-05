@@ -1,0 +1,3 @@
+[[equivalent]]
+mutant = "crates/cli/src/modules.rs:30:5: replace shipped -> Vec<Wiring> with vec![]"
+justification = "shipped() is empty in ST-03 (no shipped module), so returning vec![] is the same value; becomes killable when ST-05 adds the first shipped module"

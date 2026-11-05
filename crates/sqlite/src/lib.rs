@@ -7,9 +7,9 @@ use std::time::{Duration, Instant};
 use std::collections::BTreeSet;
 
 use arbitre_core::{
-    ApplyError, Author, Cause, Change, ClockState, Damage, DeviceId, Field, LocalChange, Log,
-    Position, RecordId, RecordState, Report, Seen, Stamp, Store, StoreError, Target, TargetKind,
-    Value, Watermark, Write, rebuild, receive, stamp_local, validate,
+    ApplyError, Author, Cause, Change, ClockState, Damage, DeviceId, Field, FieldValue,
+    LocalChange, Log, Position, RecordId, RecordState, Report, Seen, Stamp, Store, StoreError,
+    Target, TargetKind, Watermark, Write, rebuild, receive, stamp_local, validate,
 };
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior};
 
@@ -435,7 +435,7 @@ fn decode(tx: &Transaction, r: &rusqlite::Row) -> Result<(Position, Write), Stor
         (true, None) => Change::Delete,
         (false, Some(v)) => Change::Field {
             name: Field(text(field).ok_or_else(bad)?),
-            value: Value(v),
+            value: FieldValue(v),
         },
         _ => return Err(bad()),
     };

@@ -9,8 +9,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::{Context, Poll, Waker};
 
 use arbitre_core::{
-    ApplyError, Author, Cause, Change, DeviceId, Field, LocalChange, Position, RecordId, Store,
-    StoreError, Value, Watermark, Write,
+    ApplyError, Author, Cause, Change, DeviceId, Field, FieldValue, LocalChange, Position,
+    RecordId, Store, StoreError, Watermark, Write,
 };
 use arbitre_sqlite::SqliteStore;
 use full_vfs::FullVfs;
@@ -65,7 +65,7 @@ fn changes(tag: u8, n: usize, len: usize) -> Vec<LocalChange> {
             },
             change: Change::Field {
                 name: Field(format!("f{}", i % 2)),
-                value: Value((0..len).map(|j| tag ^ i as u8 ^ j as u8).collect()),
+                value: FieldValue((0..len).map(|j| tag ^ i as u8 ^ j as u8).collect()),
             },
             author: Author::CliUser,
         })

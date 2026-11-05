@@ -48,6 +48,29 @@ cargo test --workspace
 scripts/ci.sh   # the full verification, same as CI
 ```
 
+## Exit codes
+
+Every command ends with one of five exit codes. The table never changes: altering it is a foundation amendment.
+
+| Category | JSON `category` | Exit code | Meaning |
+|---|---|---|---|
+| `Success` | — | 0 | The action ran. |
+| `Refusal` | `refusal` | 1 | The action understood the command and declined (unknown item, invalid transition, business rule). |
+| `Usage` | `usage` | 2 | The command is malformed or an option does not fit its schema. Nothing ran, the store is untouched. |
+| `ToolError` | `tool_error` | 3 | The tool failed (store unavailable, crash, unwritable output). |
+| `ModuleNotEnabled` | `module_not_enabled` | 4 | The action belongs to a module that is not enabled. |
+
+With `--json`, standard output carries exactly one document, whatever the outcome. Its shape never changes:
+
+- success: `{"data": <output>, "format": 1, "ok": true}`;
+- failure: `{"error": {"category": "<JSON category>", "code": <exit code>, "id": "<error id>", "message": "<text>"}, "format": 1, "ok": false}`, plus a top-level `"data"` key only when the failure carries structured details.
+
+Keys are sorted and no whitespace is written. Messages are not stable. These error ids never disappear: `storage_full`, `storage_corrupted`, `storage_busy`, `storage_incompatible_version`, `storage_unavailable`, `write_rejected`, `no_default_store`, `catalog_invalid`, `output_mismatch`, `internal_error`, `output_failed`. Other ids (usage ids in particular) may change.
+
+A failed command changes nothing, with one exception: if a mutating command commits and then cannot write its result (`output_failed`, exit 3), the change has been applied.
+
+Store location: `--store <PATH>`, else a non-empty `ARBITRE_STORE`, else the platform default (`$XDG_DATA_HOME/arbitre/arbitre.db` when absolute, else `$HOME/.local/share/arbitre/arbitre.db` on Linux and other Unix; `$HOME/Library/Application Support/arbitre/arbitre.db` on macOS). With none of these usable, the command fails with `no_default_store` (exit 3).
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md), including the policy on AI-assisted contributions. This project was itself developed with generative AI. To report a vulnerability, see [SECURITY.md](SECURITY.md).
