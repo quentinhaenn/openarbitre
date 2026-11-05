@@ -226,6 +226,10 @@ fn hold(p: &Path, d: Duration) -> std::thread::JoinHandle<()> {
     })
 }
 
+/// SQLite's busy handler sleeps in steps that can sum a hair under the
+/// timeout (CI measured 199.9 ms for 200 ms), so lower bounds allow this slack.
+const SLACK: Duration = Duration::from_millis(20);
+
 fn open_wait(p: &Path, ms: u64) -> SqliteStore {
     let o = Options {
         wait: Duration::from_millis(ms),
@@ -244,7 +248,7 @@ fn busy_store_waits_then_reports_busy() {
     let el = t.elapsed();
     assert_eq!(r, Err(busy()));
     assert!(
-        el >= Duration::from_millis(200) && el <= Duration::from_millis(1200),
+        el >= Duration::from_millis(200) - SLACK && el <= Duration::from_millis(1200),
         "{el:?}"
     );
     h.join().unwrap();
@@ -277,7 +281,10 @@ fn open_busy_is_bounded_by_wait() {
     let r = SqliteStore::open(&p, &o);
     let el = t.elapsed();
     assert_eq!(r.err(), Some(StoreError::Unavailable(Cause::Busy)));
-    assert!(el >= wait && el < wait + Duration::from_secs(1), "{el:?}");
+    assert!(
+        el >= wait - SLACK && el < wait + Duration::from_secs(1),
+        "{el:?}"
+    );
 }
 
 #[test]
