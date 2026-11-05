@@ -24,7 +24,9 @@ fn proxy(o: &Observer) -> String {
 /// Sends `CONNECT host:port`; returns the proxy's first reply line, empty if closed.
 fn connect(o: &Observer, target: &str) -> String {
     let mut s = TcpStream::connect(proxy(o)).expect("proxy reachable");
-    write!(s, "CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n\r\n").expect("send");
+    // One write: cut mode closes after the request line, so a later fragment would be reset.
+    let request = format!("CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n\r\n");
+    s.write_all(request.as_bytes()).expect("send");
     let mut buf = [0u8; 64];
     let n = s.read(&mut buf).unwrap_or(0);
     String::from_utf8_lossy(&buf[..n])

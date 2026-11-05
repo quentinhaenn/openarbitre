@@ -72,7 +72,7 @@ fn node_command(name: &str, node: &Node) -> Command {
 /// Booleans and lists are never required on the command line (absent = `false` / `[]`).
 fn option(p: &Property) -> Arg {
     let a = Arg::new(p.name.clone())
-        .long(p.name.clone())
+        .long(p.name.replace('_', "-"))
         .value_name(p.name.to_uppercase())
         .help(p.description.clone());
     match &p.schema {
@@ -199,6 +199,37 @@ mod tests {
 #[cfg(test)]
 mod bare_root {
     use super::*;
+
+    #[test]
+    fn option_names_use_dashes() {
+        // RG-ST03-4.3: `due_date` ⇒ `--due-date`; the input key keeps `_`.
+        let a = ActionDescriptor {
+            name: "arbitre.x".into(),
+            summary: "s".into(),
+            input: Schema::Object(vec![Property {
+                name: "due_date".into(),
+                description: "d".into(),
+                required: true,
+                schema: Schema::String {
+                    min_length: None,
+                    max_length: None,
+                },
+            }]),
+            output: Schema::Object(vec![]),
+            mutating: false,
+            logged_as: arbitre_core::LoggedAs::None,
+            requires_network: Default::default(),
+        };
+        let catalog = Catalog::build(&[a], &[]).unwrap();
+        let m = command(&catalog)
+            .try_get_matches_from(["arbitre", "x", "--due-date", "d"])
+            .unwrap();
+        let (action, leaf) = selected(&m, &catalog);
+        let want = Value::Object([("due_date".into(), Value::Str("d".into()))].into());
+        assert_eq!(input(leaf, action), want);
+        let bad = command(&catalog).try_get_matches_from(["arbitre", "x", "--due_date", "d"]);
+        assert!(bad.is_err());
+    }
 
     #[test]
     fn bare_root_is_usage_even_with_an_empty_catalogue() {

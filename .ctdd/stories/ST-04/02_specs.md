@@ -103,7 +103,7 @@ Terms of `CONTRIBUTING.md` keep their meaning. New terms (to add to the glossary
 
 **RG-ST04-2.3: Reading the enabled state never changes the store** `@Invariant` [AMB-ST03-2, CONFLICT-ST04-1]
 - **Post-conditions:** to build the help or decide RG-ST04-2.2, the binary opens the store **only if the store file already exists**, and only reads. Absent file ⇒ default state (RG-ST04-1.6). Help, usage errors and "module not enabled" never create the store and leave its data identical (`writes_since(START)` and `device` unchanged).
-- **Error cases:** an existing store that cannot be read ⇒ exit 3 with the RG-ST03-3.3 id, help included (CONFLICT-ST04-2); `--version` still exits 0.
+- **Error cases:** an existing store that cannot be read ⇒ exit 3 with the RG-ST03-3.3 id for **every command except `--version`** (exit 0), help and usage errors included (CONFLICT-ST04-2). *Amended 2026-11-05, Quentin's arbitration Q-R1 (a): without the enabled state the binary cannot tell a usage error (2) from "module not enabled" (4), so 3 is the only honest answer; this narrows RG-ST03-1.1 for a damaged store only.*
 
 **RG-ST04-2.4: Entry point = module id** `@Invariant` [frame RG-3.2, INV-11 form]
 - **Formal expression:** the command path of every action of module `m` starts with `m` (RG-ST03-4.2). Checked on `fake-a`; `plan` and `diff` inherit it in ST-05 and ST-22.
@@ -164,7 +164,7 @@ Terms of `CONTRIBUTING.md` keep their meaning. New terms (to add to the glossary
 **Ref:** US-4; frame RG-1.1, 1.2, PROP-1, PROP-2; plan F-18, F-37
 
 **RG-ST04-4.1: The observer** `@Property` [AC-4.1, AC-4.2, Q5]
-- [Q5 (a)] A recording proxy in `crates/cli/tests/support/`, started per test on a local port. The binary under test is spawned with `HTTP_PROXY`, `HTTPS_PROXY` and `ALL_PROXY` pointing at it and `NO_PROXY` empty. Each connection attempt is recorded as `(host, port, argv of the command)`. In cut mode the proxy refuses every attempt (connection closed, nothing forwarded). In open mode it forwards.
+- [Q5 (a)] A recording proxy in `crates/cli/tests/support/`, started per test on a local port. The binary under test is spawned with `HTTP_PROXY`, `HTTPS_PROXY` and `ALL_PROXY` pointing at it and `NO_PROXY` empty. Each connection attempt is recorded as `(host, port)`. `take()` returns the attempts since the last call; tests call it after each command (the proxy cannot see which process connects, 07_review R-8). In cut mode the proxy refuses every attempt (connection closed, nothing forwarded). In open mode it forwards.
 - Every later network client must honour these variables. The rule is written in `CONTRIBUTING.md`: no network client may disable the proxy settings, and the story of each adapter replays PROP-2 with an assertion that its traffic **was** recorded (so a bypass is caught there).
 - The observer tests itself: a plain client in the test sends a request through it and checks it is recorded (open) or refused (cut).
 
@@ -228,7 +228,7 @@ For every toggleable module `m` of the build (test build, `--all-features`):
 | 1 | Whole test on the build | Nominal | `cargo test --all-features` | green on `test`, `fake-a`, `fake-b` | 5.2 |
 | 2 | New module joins | Nominal | a third fake instance added to `modules.rs` only (checked once by hand at review, not committed) | covered with no test edit | 5.1 |
 | 3 | Minimal input | Nominal | each subset type | conforms; accepted by the CLI | 5.3 |
-| 4 | Module without actions | Edge | `fake-a` filtered to zero actions (unit level) | per-action checks empty, enable/disable/list pass | 5.2 |
+| 4 | Module without actions | Edge | a module with zero actions (unit level, `wiring/arbitre.rs`) | the catalogue builds; enable/disable/list pass. The per-action checks are loops over `m.actions`, so empty by construction (07_review R-13) | 5.2 |
 
 ### SPEC-US-6: A problem met in the background shows up at my next command
 **Ref:** US-6; plan F-27; ST-03 Q-DA2 (a)
@@ -356,7 +356,7 @@ All in `crates/cli/tests/` (spawning the binary, `--all-features`) unless noted;
 | # | Rules | Description | Resolution |
 |---|---|---|---|
 | [CONFLICT-ST04-1] | RG-ST03-1.3 ("usage, help ⇒ store never opened") vs RG-ST04-2.1/2.2 (help and precedence need the enabled state) | Reading the enabled state means opening the store before parsing. | As foreseen by AMB-ST03-2: RG-ST03-1.3 becomes "never created, never written"; an existing store is opened read only (RG-ST04-2.3). |
-| [CONFLICT-ST04-2] | RG-ST03-1.4 ("help always exits 0") vs a damaged store | The help cannot be built without the enabled state. | Help on an unreadable store exits 3 with the store id; `--version` still exits 0. |
+| [CONFLICT-ST04-2] | RG-ST03-1.4 ("help always exits 0") vs a damaged store | The help cannot be built without the enabled state. | Every command on an unreadable store exits 3 with the store id, help and usage errors included; only `--version` exits 0. *Amended 2026-11-05, Quentin's arbitration Q-R1 (a) (`07_review.md`).* |
 | [CONFLICT-ST04-3] | frame RG-1.1 ("every operation succeeds offline") vs a generic test with synthesized inputs | A synthesized input may be refused by a business rule (`not_found`). | Q6. Default: outcome ∈ {success, refusal} with zero network attempts, plus a full success scenario on the fake module. |
 | [CONFLICT-ST04-4] | archi D-2 (`arbitre module enable diff`, positional) vs ST-03 derivation (options only, frozen subset) | A positional argument is not in the frozen subset. | Q7. Default: `arbitre module enable --module diff`. |
 | [CONFLICT-ST04-5] | plan § ST-04 ("signals at the start of every command") vs ST-03 Q-DA2 (a) | Q-DA2 restricts to well-formed actions, on stderr. | Q-DA2 (a) is binding (RG-ST04-6.2). |
@@ -457,7 +457,7 @@ These lines override the rules they name. Detail and reasons: `05_da_review.md`;
 | F-8 | RG-ST04-3.4: the whole build is validated at every start, then filtered. A toggleable module id must have the name-segment form and must not equal a foundation command word (`module`, `test`). |
 | F-9 | RG-ST04-5.2, 5.4: `Env { store, vars }`, `Called { code, doc }` (code from `doc.error.code` when the surface has none); `actions()` reads what the user sees (CLI: recursive `--help`; MCP: `tools/list`). Per surface: checks 1, 2 (visibility) and 7. CLI only: explicit call ⇒ 4, checks 3 to 6. |
 | F-10 | RG-ST04-5.2 items 5, 7: comparison runs use byte copies of one prepared store and a pinned time (`ARBITRE_TEST_NOW`, read only with `test-actions`). |
-| F-11 | RG-ST04-4.1: frozen observer API `Observer::start(mode)`, `env()`, `records()`. Cut mode is a proxy refusal, not a network cut; a client that ignores the proxy variables needs its own support before its story passes. |
+| F-11 | RG-ST04-4.1: frozen observer API `Observer::start(mode)`, `env()`, `take()` (was `records()`, 07_review R-8). Cut mode is a proxy refusal, not a network cut; a client that ignores the proxy variables needs its own support before its story passes. |
 | F-13 | Matrix US-6: one case with `TZ=America/New_York` and a pinned time checks the local time in the signal line. |
 | F-15 | Matrix US-5 row 4 becomes a unit test of the conformance helpers. `jiff` 0.2 is part of the frozen contract (through `Clock::timezone`). |
 

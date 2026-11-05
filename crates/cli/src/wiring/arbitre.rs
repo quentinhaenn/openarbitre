@@ -10,7 +10,7 @@ use arbitre_core::{
 };
 use arbitre_sqlite::SqliteStore;
 
-use super::{Modules, ids};
+use super::{Modules, get, ids};
 use crate::store::{block_on, map_apply, map_store};
 
 #[cfg(feature = "test-actions")]
@@ -63,6 +63,42 @@ pub fn action(
     }
 }
 
+pub fn mutating(a: ActionDescriptor) -> ActionDescriptor {
+    ActionDescriptor {
+        mutating: true,
+        ..a
+    }
+}
+
+/// Required non-empty `key`.
+#[cfg(feature = "test-actions")]
+pub fn key() -> Property {
+    prop(
+        "key",
+        "Record key.",
+        true,
+        Schema::String {
+            min_length: Some(1),
+            max_length: None,
+        },
+    )
+}
+
+pub fn object<'k>(kv: impl IntoIterator<Item = (&'k str, Value)>) -> Value {
+    Value::Object(kv.into_iter().map(|(k, v)| (k.into(), v)).collect())
+}
+
+/// Text property `key` of a conforming input; `None` if absent.
+pub fn text<'a>(input: &'a Value, key: &str) -> Option<&'a str> {
+    let Value::Object(o) = input else {
+        unreachable!("input conforms to an object schema")
+    };
+    match o.get(key) {
+        Some(Value::Str(s)) => Some(s),
+        _ => None,
+    }
+}
+
 /// `arbitre.module.*` (`enable`/`disable` only with a toggleable module, DA F-7), plus the
 /// test actions with `test-actions`. Descriptor schemas are given as canonical JSON text.
 pub fn descriptors(toggleable: &[&str]) -> Vec<ActionDescriptor> {
@@ -106,10 +142,6 @@ pub fn descriptors(toggleable: &[&str]) -> Vec<ActionDescriptor> {
             list(descriptor),
         ),
     ]);
-    let mutating = |a: ActionDescriptor| ActionDescriptor {
-        mutating: true,
-        ..a
-    };
     let mut all = vec![action(
         "arbitre.module.list",
         "Lists the modules of this build and their state.",
@@ -178,21 +210,12 @@ pub fn enabled(
     Ok(enabled_from(st.as_ref(), &ids(modules)))
 }
 
-fn object(kv: Vec<(&str, Value)>) -> Value {
-    Value::Object(kv.into_iter().map(|(k, v)| (k.into(), v)).collect())
-}
-
 /// `enable` revalidates the whole module before writing the state (P-10); idempotent:
 /// the state is written only when it changes (RG-ST04-1.2).
 fn switch(input: &Value, on: bool, env: &Env<'_>) -> Result<Value, ActionError> {
-    let Value::Object(o) = input else {
-        unreachable!("input conforms to an object schema")
-    };
-    let Some(Value::Str(module)) = o.get("module") else {
-        unreachable!("module is required")
-    };
+    let module = text(input, "module").expect("module is required");
     let (record, st) = state(env.store)?;
-    let changed = enabled_from(st.as_ref(), &ids(env.modules)).contains(module.as_str()) != on;
+    let changed = enabled_from(st.as_ref(), &ids(env.modules)).contains(module) != on;
     let problems = if on && changed {
         revalidate(module, env)?
     } else {
@@ -207,7 +230,7 @@ fn switch(input: &Value, on: bool, env: &Env<'_>) -> Result<Value, ActionError> 
         block_on(env.store.apply_local(env.clock.now(), &[change]))?.map_err(map_apply)?;
     }
     let mut out = vec![
-        ("module", Value::Str(module.clone())),
+        ("module", Value::Str(module.into())),
         ("enabled", Value::Bool(on)),
         ("changed", Value::Bool(changed)),
     ];
@@ -219,9 +242,7 @@ fn switch(input: &Value, on: bool, env: &Env<'_>) -> Result<Value, ActionError> 
 
 /// Revalidates every present record of `module` (P-10): `{category, id, problem, message}`.
 fn revalidate(module: &str, env: &Env<'_>) -> Result<Vec<Value>, ActionError> {
-    let Some(m) = env.modules.iter().find(|m| m.id() == module) else {
-        unreachable!("module is in the build enum")
-    };
+    let m = get(env.modules, module).expect("module is in the build enum");
     let keys: BTreeSet<_> = block_on(env.store.writes_since(Position::START))?
         .map_err(map_store)?
         .into_iter()
@@ -240,7 +261,7 @@ fn revalidate(module: &str, env: &Env<'_>) -> Result<Vec<Value>, ActionError> {
     Ok(problems
         .into_iter()
         .map(|p| {
-            object(vec![
+            object([
                 ("category", Value::Str(p.record.category)),
                 ("id", Value::Str(p.record.id)),
                 ("problem", Value::Str(p.id)),
@@ -263,38 +284,112 @@ fn list_modules(env: &Env<'_>) -> Result<Value, ActionError> {
             } else {
                 Vec::new()
             };
-            object(vec![
+            object([
                 ("id", Value::Str(m.id().into())),
                 ("enabled", Value::Bool(enabled)),
                 ("actions", Value::List(actions)),
             ])
         })
         .collect();
-    Ok(object(vec![("modules", Value::List(modules))]))
+    Ok(object([("modules", Value::List(modules))]))
 }
 
 /// A descriptor as `module list` gives it: schemas as canonical JSON text (skeleton decision 1).
 fn describe(a: &ActionDescriptor) -> Value {
-    let lower = |d: &dyn std::fmt::Debug| Value::Str(format!("{d:?}").to_lowercase());
-    object(vec![
+    let s = |x: &str| Value::Str(x.into());
+    object([
         ("name", Value::Str(a.name.clone())),
         ("summary", Value::Str(a.summary.clone())),
         ("input", Value::Str(encode(&a.input_json_schema()))),
         ("output", Value::Str(encode(&a.output_json_schema()))),
         ("mutating", Value::Bool(a.mutating)),
-        ("logged_as", lower(&a.logged_as)),
+        ("logged_as", s(a.logged_as.as_str())),
         (
             "requires_network",
-            Value::List(a.requires_network.iter().map(|n| lower(n)).collect()),
+            Value::List(a.requires_network.iter().map(|n| s(n.as_str())).collect()),
         ),
     ])
 }
 
 #[cfg(test)]
 mod tests {
+    use arbitre_core::{Context, LocalBoxFuture, Output, Problem, StoreError};
+
+    use super::*;
+
+    struct NoAction;
+
+    impl arbitre_core::Module<SqliteStore> for NoAction {
+        fn id(&self) -> &'static str {
+            "empty"
+        }
+
+        fn actions(&self) -> Vec<ActionDescriptor> {
+            Vec::new()
+        }
+
+        fn execute<'a>(
+            &'a self,
+            _: &'a str,
+            _: Value,
+            _: &'a Context<'a, SqliteStore>,
+        ) -> LocalBoxFuture<'a, Result<Output, ActionError>> {
+            unreachable!("no action")
+        }
+
+        fn revalidate<'a>(
+            &'a self,
+            _: &'a [(String, String)],
+            _: &'a ModuleStore<'a, SqliteStore>,
+        ) -> LocalBoxFuture<'a, Result<Vec<Problem>, StoreError>> {
+            Box::pin(async { Ok(Vec::new()) })
+        }
+    }
+
+    #[test]
+    fn a_module_with_no_action_enables_lists_and_disables() {
+        // Matrix US-5 row 4.
+        let modules: Modules = vec![Box::new(NoAction)];
+        super::super::catalog(&modules, |_| true).expect("valid with no action");
+        let dir = std::env::temp_dir().join(format!("arbitre-no-action-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let store = crate::store::open(&dir.join("s.db")).expect("store");
+        let env = Env {
+            store: &store,
+            clock: &crate::clock::SystemClock,
+            author: Author::CliUser,
+            modules: &modules,
+        };
+        let id = || Value::Str("empty".into());
+        let input = object([("module", id())]);
+        let on = execute("arbitre.module.enable", input.clone(), &env).expect("enable");
+        assert_eq!(
+            on,
+            object([
+                ("module", id()),
+                ("enabled", Value::Bool(true)),
+                ("changed", Value::Bool(true)),
+                ("problems", Value::List(vec![])),
+            ])
+        );
+        let entry = object([
+            ("id", id()),
+            ("enabled", Value::Bool(true)),
+            ("actions", Value::List(vec![])),
+        ]);
+        assert_eq!(
+            execute("arbitre.module.list", object([]), &env).expect("list"),
+            object([("modules", Value::List(vec![entry]))])
+        );
+        let off = execute("arbitre.module.disable", input, &env).expect("disable");
+        assert_eq!(text(&off, "module"), Some("empty"));
+        assert_eq!(enabled(&store, &modules).expect("state"), BTreeSet::new());
+    }
+
     #[test]
     fn only_enable_and_disable_mutate() {
-        let d = super::descriptors(&["m"]);
+        let d = descriptors(&["m"]);
         let mutating = |n: &str| d.iter().find(|a| a.name == n).expect(n).mutating;
         assert!(mutating("arbitre.module.enable") && mutating("arbitre.module.disable"));
         assert!(!mutating("arbitre.module.list"));

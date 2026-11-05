@@ -19,7 +19,8 @@ fn system(record: &arbitre_core::RecordId, change: arbitre_core::Change) -> Loca
     }
 }
 
-/// Writes one signal of this device, dated `now` (ST-11, ST-19 call it).
+/// Writes one signal of this device, dated `now` (ST-11, ST-19 call it). `source` is
+/// `[a-z][a-z0-9_]*`; callers pass constants, so another is an `internal_error`.
 #[cfg_attr(
     not(feature = "test-actions"),
     expect(dead_code, reason = "called by `test.signal`, then by ST-11 and ST-19")
@@ -30,6 +31,16 @@ pub fn deposit(
     source: &str,
     message: &str,
 ) -> Result<(), ActionError> {
+    let snake = source.starts_with(|c: char| c.is_ascii_lowercase())
+        && source
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+    if !snake {
+        return Err(ActionError::tool_error(
+            "internal_error",
+            format!("signal source {source:?} is not snake_case"),
+        ));
+    }
     let record = signal_record(block_on(store.device())?.map_err(map_store)?, now, source);
     let changes: Vec<_> = signal_changes(now, source, message)
         .into_iter()

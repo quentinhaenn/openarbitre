@@ -7,7 +7,7 @@ use serde_json::Value as Json;
 
 use super::{Called, Env, Surface};
 use crate::support::conformance::{modules, run_timed};
-use crate::support::{cmd, doc};
+use crate::support::{doc, on};
 
 pub struct Cli;
 
@@ -18,10 +18,7 @@ impl Surface for Cli {
 
     /// Walks `arbitre --help`, then each group's `--help`, recursively.
     fn actions(&self, env: &Env) -> BTreeSet<String> {
-        let ids: BTreeSet<_> = modules(home(env), &env.store)
-            .into_iter()
-            .map(|m| m.id)
-            .collect();
+        let ids: BTreeSet<_> = modules(&env.store).into_iter().map(|m| m.id).collect();
         let mut found = BTreeSet::new();
         walk(env, &mut Vec::new(), &mut found);
         found
@@ -37,26 +34,9 @@ impl Surface for Cli {
             .collect()
     }
 
-    /// Input becomes options by the RG-ST03-4.3 table, with `--json --store <env.store>`.
+    /// `args(action, input) --json`, on `env.store` with `env.vars`.
     fn call(&self, env: &Env, action: &str, input: &serde_json::Value) -> Called {
-        let mut args: Vec<String> = action
-            .strip_prefix("arbitre.")
-            .unwrap_or(action)
-            .split('.')
-            .map(String::from)
-            .collect();
-        for (k, v) in input.as_object().expect("input object") {
-            let opt = format!("--{}", k.replace('_', "-"));
-            match v {
-                Json::Bool(on) => args.extend(on.then_some(opt)),
-                Json::Array(items) => {
-                    for i in items {
-                        args.extend([opt.clone(), text(i)]);
-                    }
-                }
-                v => args.extend([opt, text(v)]),
-            }
-        }
+        let mut args = args(action, input);
         args.push("--json".into());
         let r = run_timed(&mut spawn(env, &args)).expect("no hang");
         Called {
@@ -66,22 +46,36 @@ impl Surface for Cli {
     }
 }
 
-/// The binary on `env.store` with `env.vars`; `HOME` is the store's directory.
+/// Command words and options of `action` with `input`, by the RG-ST03-4.3 table.
+pub fn args(action: &str, input: &Json) -> Vec<String> {
+    let mut args: Vec<String> = action
+        .strip_prefix("arbitre.")
+        .unwrap_or(action)
+        .split('.')
+        .map(String::from)
+        .collect();
+    for (k, v) in input.as_object().expect("input object") {
+        let opt = format!("--{}", k.replace('_', "-"));
+        match v {
+            Json::Bool(on) => args.extend(on.then_some(opt)),
+            Json::Array(items) => {
+                for i in items {
+                    args.extend([opt.clone(), text(i)]);
+                }
+            }
+            v => args.extend([opt, text(v)]),
+        }
+    }
+    args
+}
+
 fn spawn(env: &Env, args: &[String]) -> Command {
-    let store = env.store.display().to_string();
-    let mut v: Vec<&str> = args.iter().map(String::as_str).collect();
-    v.extend(["--store", &store]);
-    let mut c = cmd(home(env), &v);
-    c.envs(env.vars.iter().cloned());
-    c
+    let v: Vec<&str> = args.iter().map(String::as_str).collect();
+    on(&env.store, &env.vars, &v)
 }
 
 fn text(v: &Json) -> String {
     v.as_str().map_or_else(|| v.to_string(), String::from)
-}
-
-fn home(env: &Env) -> &std::path::Path {
-    env.store.parent().expect("store in a directory")
 }
 
 /// Adds to `found` the command paths under `path` that run an action.

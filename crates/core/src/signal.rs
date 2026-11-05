@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 
 use crate::hlc::DeviceId;
 use crate::merge::{RecordState, Status};
-use crate::write::{Change, Field, FieldValue, RecordId};
+use crate::write::{Change, Field, RecordId};
 
 /// One signal, as read back from its record.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,33 +26,18 @@ pub fn signal_record(device: DeviceId, at: u64, source: &str) -> RecordId {
     }
 }
 
-fn field(name: &str, value: &str) -> Change {
-    Change::Field {
-        name: Field(name.into()),
-        value: FieldValue(value.as_bytes().to_vec()),
-    }
-}
-
 /// Field changes of a new signal (`at`, `source`, `message`).
 pub fn signal_changes(at: u64, source: &str, message: &str) -> Vec<Change> {
     vec![
-        field("at", &format!("{at}")),
-        field("source", source),
-        field("message", message),
+        Change::field("at", format!("{at}").as_bytes()),
+        Change::field("source", source.as_bytes()),
+        Change::field("message", message.as_bytes()),
     ]
 }
 
 /// Change marking a signal read.
 pub fn read_change() -> Change {
-    field("read", "1")
-}
-
-/// UTF-8 value of field `name`.
-fn text(state: &RecordState, name: &str) -> Option<String> {
-    match &state.fields.get(&Field(name.into()))?.change {
-        Change::Field { value, .. } => String::from_utf8(value.0.clone()).ok(),
-        Change::Delete => None,
-    }
+    Change::field("read", b"1")
 }
 
 /// Unread signals of `device` among the records of category `signal`, oldest first
@@ -69,9 +54,9 @@ pub fn unread(records: &[(RecordId, RecordState)], device: DeviceId) -> Vec<Sign
         .filter_map(|(r, s)| {
             Some(Signal {
                 record: r.clone(),
-                at: text(s, "at")?.parse().ok()?,
-                source: text(s, "source")?,
-                message: text(s, "message")?,
+                at: s.text("at")?.parse().ok()?,
+                source: s.text("source")?,
+                message: s.text("message")?,
             })
         })
         .collect();

@@ -2,11 +2,10 @@
 //! plus `test.signal` (ST-04 DA F-1, F-2). Schemas are what `crates/cli/tests/` expect.
 
 use arbitre_core::{
-    ActionDescriptor, ActionError, Change, Field, FieldValue, LocalChange, Position, RecordId,
-    Schema, Store, Value,
+    ActionDescriptor, ActionError, Change, LocalChange, Position, RecordId, Schema, Store, Value,
 };
 
-use super::{Env, action, prop, string};
+use super::{Env, action, key, mutating, object, prop, string, text};
 use crate::store::{block_on, map_apply, map_store};
 
 /// Inputs of `test.echo`: every subset type (mirror in `crates/core/tests/catalog.rs`).
@@ -40,25 +39,9 @@ fn echo_input() -> Vec<arbitre_core::Property> {
     ]
 }
 
-fn key() -> arbitre_core::Property {
-    prop(
-        "key",
-        "Record key.",
-        true,
-        Schema::String {
-            min_length: Some(1),
-            max_length: None,
-        },
-    )
-}
-
 pub fn descriptors() -> Vec<ActionDescriptor> {
     let mut echo_output = echo_input();
     echo_output.push(prop("remark", "A remark.", true, string(None)));
-    let mutating = |a: ActionDescriptor| ActionDescriptor {
-        mutating: true,
-        ..a
-    };
     vec![
         action(
             "arbitre.test.echo",
@@ -150,9 +133,6 @@ pub fn descriptors() -> Vec<ActionDescriptor> {
 /// Runs one test action. `test.refuse` attaches `{"item":"x"}`; `test.write --fail` acts
 /// before `apply_local`; `test.echo` returns its input plus `remark`.
 pub fn execute(name: &str, input: Value, env: &Env<'_>) -> Result<Value, ActionError> {
-    let object = |kv: &[(&str, Value)]| {
-        Value::Object(kv.iter().map(|(k, v)| (k.to_string(), v.clone())).collect())
-    };
     match name {
         "arbitre.test.echo" => {
             let Value::Object(mut o) = input else {
@@ -163,53 +143,41 @@ pub fn execute(name: &str, input: Value, env: &Env<'_>) -> Result<Value, ActionE
         }
         "arbitre.test.noisy" => {
             eprintln!("diagnostic on standard error");
-            Ok(object(&[]))
+            Ok(object([]))
         }
         "arbitre.test.refuse" => Err(ActionError::refusal("refused", "refused on purpose")
-            .with_data(object(&[("item", Value::Str("x".into()))]))),
+            .with_data(object([("item", Value::Str("x".into()))]))),
         "arbitre.test.fail" => Err(ActionError::tool_error("failed", "failed on purpose")),
         "arbitre.test.panic" => panic!("test.panic"),
         "arbitre.test.write" => write(&input, env),
         "arbitre.test.read" => read(env),
         "arbitre.test.signal" => signal(&input, env),
         // noop, bad-output (misses its required key), group, group.child, test-foundation
-        _ => Ok(object(&[])),
+        _ => Ok(object([])),
     }
 }
 
 fn write(input: &Value, env: &Env<'_>) -> Result<Value, ActionError> {
-    let Value::Object(o) = input else {
-        unreachable!("input conforms to an object schema")
-    };
-    let Some(Value::Str(key)) = o.get("key") else {
-        unreachable!("key is required")
-    };
-    match o.get("fail") {
-        Some(Value::Str(m)) if m == "refusal" => {
-            return Err(ActionError::refusal("refused", "refused before writing"));
-        }
-        Some(Value::Str(m)) if m == "tool-error" => {
+    let key = text(input, "key").expect("key is required");
+    match text(input, "fail") {
+        Some("refusal") => return Err(ActionError::refusal("refused", "refused before writing")),
+        Some("tool-error") => {
             return Err(ActionError::tool_error("failed", "failed before writing"));
         }
-        Some(Value::Str(m)) if m == "panic" => panic!("test.write --fail panic"),
+        Some("panic") => panic!("test.write --fail panic"),
         _ => {}
     }
     let change = LocalChange {
         record: RecordId {
             module: "arbitre".into(),
             category: "item".into(),
-            id: key.clone(),
+            id: key.into(),
         },
-        change: Change::Field {
-            name: Field("v".into()),
-            value: FieldValue(key.as_bytes().to_vec()),
-        },
+        change: Change::field("v", key.as_bytes()),
         author: env.author,
     };
     block_on(env.store.apply_local(env.clock.now(), &[change]))?.map_err(map_apply)?;
-    Ok(Value::Object(
-        [("key".to_string(), Value::Str(key.clone()))].into(),
-    ))
+    Ok(object([("key", Value::Str(key.into()))]))
 }
 
 fn read(env: &Env<'_>) -> Result<Value, ActionError> {
@@ -219,25 +187,12 @@ fn read(env: &Env<'_>) -> Result<Value, ActionError> {
         .filter(|(_, w)| w.record.module == "arbitre" && w.record.category == "item")
         .map(|(_, w)| Value::Str(w.record.id))
         .collect();
-    Ok(Value::Object(
-        [("keys".to_string(), Value::List(keys))].into(),
-    ))
+    Ok(object([("keys", Value::List(keys))]))
 }
 
 /// Deposits through `signals::deposit`, from this process (RG-ST04-6.3 simulator).
 fn signal(input: &Value, env: &Env<'_>) -> Result<Value, ActionError> {
-    let text = |k: &str| match input {
-        Value::Object(o) => match o.get(k) {
-            Some(Value::Str(s)) => s.clone(),
-            _ => unreachable!("{k} is required"),
-        },
-        _ => unreachable!("input conforms to an object schema"),
-    };
-    crate::signals::deposit(
-        env.store,
-        env.clock.now(),
-        &text("source"),
-        &text("message"),
-    )?;
-    Ok(Value::Object([].into()))
+    let text = |k: &str| text(input, k).expect("required");
+    crate::signals::deposit(env.store, env.clock.now(), text("source"), text("message"))?;
+    Ok(object([]))
 }

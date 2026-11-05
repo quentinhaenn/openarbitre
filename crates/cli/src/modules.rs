@@ -27,6 +27,11 @@ pub fn ids(modules: &Modules) -> Vec<&'static str> {
     modules.iter().map(|m| m.id()).collect()
 }
 
+/// The toggleable module with id `id`.
+pub fn get<'a>(modules: &'a Modules, id: &str) -> Option<&'a dyn Module<SqliteStore>> {
+    modules.iter().find(|m| m.id() == id).map(|m| m.as_ref())
+}
+
 /// Catalogue of the foundation and the `modules` kept by `enabled` (RG-ST03-4.6,
 /// RG-ST04-2.1, 3.4); the `module` enum always names the whole build.
 pub fn catalog(modules: &Modules, enabled: impl Fn(&str) -> bool) -> Result<Catalog, CatalogError> {
@@ -49,6 +54,16 @@ mod tests {
         let names: Vec<_> = c.actions().iter().map(|a| a.name.as_str()).collect();
         assert!(names.contains(&"arbitre.module.list"));
         assert!(!names.contains(&"arbitre.module.enable"));
+    }
+
+    #[test]
+    fn get_by_id() {
+        let all = all();
+        assert!(get(&all, "arbitre").is_none());
+        if cfg!(feature = "test-actions") {
+            assert_eq!(get(&all, "fake-b").expect("fake-b").id(), "fake-b");
+            assert!(get(&all, "fake-c").is_none());
+        }
     }
 
     #[test]

@@ -16,7 +16,7 @@ use crate::hlc::DeviceId;
 use crate::merge::RecordState;
 use crate::store::{ApplyError, LocalChange, Store, StoreError};
 use crate::value::{Output, Value};
-use crate::write::{Author, Change, Field, FieldValue, RecordId, Write};
+use crate::write::{Author, Change, Field, RecordId, Write};
 
 /// Future returned by `Module` and `Ai` methods (dyn-compatible, Q3 (a)).
 pub type LocalBoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
@@ -146,11 +146,19 @@ pub struct PreScan<'a> {
     pub store: Option<&'a str>,
     /// First argument that is neither an option nor `--store`'s value, before `--`.
     pub first_word: Option<&'a str>,
+    /// `--json` before `--` (RG-ST03-2.1).
+    pub json: bool,
 }
 
 /// Reads `args` (program name excluded) without the catalogue.
 pub fn pre_scan<'a>(args: &[&'a str]) -> PreScan<'a> {
-    let mut scan = PreScan::default();
+    let mut scan = PreScan {
+        json: args
+            .iter()
+            .take_while(|a| **a != "--")
+            .any(|a| *a == "--json"),
+        ..PreScan::default()
+    };
     let mut rest = args.iter().copied().take_while(|a| *a != "--");
     while let Some(a) = rest.next() {
         if a == "--store" {
@@ -186,8 +194,5 @@ pub fn enabled_from(state: Option<&RecordState>, build: &[&'static str]) -> BTre
 
 /// Change writing `module` on (`b"1"`) or off (`b"0"`) in the state record.
 pub fn state_change(module: &str, on: bool) -> Change {
-    Change::Field {
-        name: Field(module.into()),
-        value: FieldValue(if on { b"1" } else { b"0" }.to_vec()),
-    }
+    Change::field(module, if on { b"1" } else { b"0" })
 }

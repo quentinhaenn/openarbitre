@@ -10,8 +10,8 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use arbitre_core::{
-    ActionDescriptor, ActionError, Author, Category, Context, Module, ModuleStore, conforms_output,
-    document, encode, pre_scan, render,
+    ActionDescriptor, ActionError, Author, Category, Context, ModuleStore, PreScan,
+    conforms_output, document, encode, pre_scan, render,
 };
 use arbitre_sqlite::SqliteStore;
 use clap::ArgMatches;
@@ -27,14 +27,6 @@ struct Done {
     out: String,
     err: String,
     code: u8,
-}
-
-/// `--json` among the raw arguments, before any `--` (RG-ST03-2.1).
-fn json_mode(args: &[OsString]) -> bool {
-    args.iter()
-        .skip(1)
-        .take_while(|a| *a != "--")
-        .any(|a| a == "--json")
 }
 
 fn finish(r: Outcome, json: bool) -> Done {
@@ -62,15 +54,6 @@ fn settle(action: &ActionDescriptor, r: Outcome) -> Outcome {
         )),
         r => r,
     }
-}
-
-/// The toggleable module owning `action`; `None` for the foundation.
-fn module_of<'a>(modules: &'a Modules, action: &str) -> Option<&'a dyn Module<SqliteStore>> {
-    let first = action.split('.').next();
-    modules
-        .iter()
-        .find(|m| first == Some(m.id()))
-        .map(|m| m.as_ref())
 }
 
 /// The store located before parsing: the existing handle, else opened (created) at `path`.
@@ -107,9 +90,10 @@ fn not_enabled(
     modules: &Modules,
     enabled: &BTreeSet<&str>,
 ) -> Option<ActionError> {
-    let m = modules::ids(modules)
-        .into_iter()
-        .find(|m| first_word == Some(*m) && !enabled.contains(m))?;
+    let m = modules::get(modules, first_word?)?.id();
+    if enabled.contains(m) {
+        return None;
+    }
     Some(ActionError::module_not_enabled(
         "module_not_enabled",
         format!("module {m} is not enabled; run: arbitre module enable --module {m}"),
@@ -129,12 +113,17 @@ fn execute(
     let clock = SystemClock;
     // `test.signal` stands for a background task (RG-ST04-6.3), not a user command: showing
     // here would consume the signals it is meant to pile up (`tests/signals.rs` oldest_first).
-    if action.name != "arbitre.test.signal" {
+    #[cfg(feature = "test-actions")]
+    let show = action.name != "arbitre.test.signal";
+    #[cfg(not(feature = "test-actions"))]
+    let show = true;
+    if show {
         signals::show_and_mark(&store, &clock, &mut std::io::stderr());
     }
     let author = Author::CliUser;
     let input = cli::input(leaf, action);
-    let r = match module_of(modules, &action.name) {
+    let first = action.name.split('.').next().unwrap_or_default();
+    let r = match modules::get(modules, first) {
         None => {
             let env = Env {
                 store: &store,
@@ -158,7 +147,8 @@ fn execute(
 }
 
 /// Everything from catalogue to result; the store is dropped on return, before any write.
-fn run(args: &[OsString], json: bool) -> Done {
+fn run(args: &[OsString], scan: PreScan) -> Done {
+    let json = scan.json;
     let modules = modules::all();
     // The whole build is validated, whatever is enabled (plan P-4).
     if let Err(e) = modules::catalog(&modules, |_| true) {
@@ -167,9 +157,6 @@ fn run(args: &[OsString], json: bool) -> Done {
             json,
         );
     }
-    let words: Vec<_> = args.iter().skip(1).map(|a| a.to_string_lossy()).collect();
-    let words: Vec<&str> = words.iter().map(|w| w.as_ref()).collect();
-    let scan = pre_scan(&words);
     let (located, enabled) = match locate(scan.store, &modules) {
         Ok(x) => x,
         Err(e) => return unreadable(args, &modules, e, json),
@@ -211,8 +198,11 @@ fn unreadable(args: &[OsString], modules: &Modules, e: ActionError, json: bool) 
 
 fn main() {
     let args: Vec<OsString> = std::env::args_os().collect();
-    let json = json_mode(&args);
-    let done = std::panic::catch_unwind(|| run(&args, json)).unwrap_or_else(|_| {
+    let words: Vec<_> = args.iter().skip(1).map(|a| a.to_string_lossy()).collect();
+    let words: Vec<&str> = words.iter().map(|w| w.as_ref()).collect();
+    let scan = pre_scan(&words);
+    let json = scan.json;
+    let done = std::panic::catch_unwind(|| run(&args, scan)).unwrap_or_else(|_| {
         let crash = ActionError::tool_error("internal_error", "crash; details on standard error");
         finish(Err(crash), json)
     });
@@ -257,14 +247,6 @@ mod tests {
     }
 
     #[test]
-    fn json_mode_stops_at_terminator_and_skips_program() {
-        assert!(json_mode(&os(&["a", "x", "--json"])));
-        assert!(!json_mode(&os(&["a", "x", "--", "--json"])));
-        assert!(!json_mode(&os(&["--json"])));
-        assert!(!json_mode(&os(&["a", "x"])));
-    }
-
-    #[test]
     fn settle_checks_output_and_usage() {
         let ok = Ok(Value::Object([].into()));
         assert_eq!(settle(&descriptor(), ok.clone()), ok);
@@ -296,29 +278,16 @@ mod tests {
     }
 
     #[test]
-    fn module_by_first_segment() {
-        let all = modules::all();
-        assert!(module_of(&all, "arbitre.module.list").is_none());
-        if cfg!(feature = "test-actions") {
-            let m = module_of(&all, "fake-b.put").expect("fake-b");
-            assert_eq!(m.id(), "fake-b");
-            assert!(module_of(&all, "fake-c.put").is_none());
-        }
-    }
-
-    #[test]
     fn human_help_is_the_text_json_help_is_a_document() {
         // An absent store, never the machine's default one.
         let absent = std::env::temp_dir()
             .join(format!("arbitre-help-{}", std::process::id()))
             .join("absent.db");
         let store = absent.to_str().expect("utf-8 temp dir");
-        let human = run(&os(&["arbitre", "--help", "--store", store]), false);
+        let go = |a: &[&str]| run(&os(a), pre_scan(&a[1..]));
+        let human = go(&["arbitre", "--help", "--store", store]);
         assert!(human.out.starts_with("Usage:") && human.code == 0);
-        let json = run(
-            &os(&["arbitre", "--help", "--json", "--store", store]),
-            true,
-        );
+        let json = go(&["arbitre", "--help", "--json", "--store", store]);
         assert!(json.out.contains("\"help\"") && json.code == 0);
     }
 }

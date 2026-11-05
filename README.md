@@ -67,6 +67,8 @@ With `--json`, standard output carries exactly one document, whatever the outcom
 
 Keys are sorted and no whitespace is written. Messages are not stable. These error ids never disappear: `storage_full`, `storage_corrupted`, `storage_busy`, `storage_incompatible_version`, `storage_unavailable`, `write_rejected`, `no_default_store`, `catalog_invalid`, `output_mismatch`, `internal_error`, `output_failed`. Other ids (usage ids in particular) may change.
 
+An existing store that cannot be read makes every command exit 3 (`storage_corrupted` or another store id), help and usage errors included: without its state, `arbitre` cannot tell a malformed command from a module that is not enabled. Only `--version` still exits 0. The file is never written.
+
 A failed command changes nothing, with one exception: if a mutating command commits and then cannot write its result (`output_failed`, exit 3), the change has been applied.
 
 Store location: `--store <PATH>`, else a non-empty `ARBITRE_STORE`, else the platform default (`$XDG_DATA_HOME/arbitre/arbitre.db` when absolute, else `$HOME/.local/share/arbitre/arbitre.db` on Linux and other Unix; `$HOME/Library/Application Support/arbitre/arbitre.db` on macOS). With none of these usable, the command fails with `no_default_store` (exit 3).

@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value as Json, json};
 
-use super::{Run, cmd, doc, snapshot, success};
+use super::{Run, doc, on, snapshot, success};
 
 /// Longest a command may run before the check fails as a hang (RG-ST04-4.2, 4.3).
 pub const TIMEOUT: Duration = Duration::from_secs(10);
@@ -17,24 +17,20 @@ pub const TIMEOUT: Duration = Duration::from_secs(10);
 #[derive(Debug, Clone)]
 pub struct ModuleInfo {
     pub id: String,
-    pub enabled: bool,
     /// Descriptor objects (`name`, `summary`, `input`, `output`, `mutating`, `logged_as`,
     /// `requires_network`); empty when disabled.
     pub actions: Vec<serde_json::Value>,
 }
 
 /// Modules of the build, read from the binary on `store` (RG-ST04-5.1).
-pub fn modules(home: &Path, store: &Path) -> Vec<ModuleInfo> {
-    let s = store.display().to_string();
-    let r =
-        run_timed(&mut cmd(home, &["module", "list", "--json", "--store", &s])).expect("no hang");
+pub fn modules(store: &Path) -> Vec<ModuleInfo> {
+    let r = run_timed(&mut on(store, &[], &["module", "list", "--json"])).expect("no hang");
     success(&doc(&r))["modules"]
         .as_array()
         .expect("modules")
         .iter()
         .map(|m| ModuleInfo {
             id: m["id"].as_str().expect("id").to_string(),
-            enabled: m["enabled"].as_bool().expect("enabled"),
             actions: m["actions"].as_array().expect("actions").clone(),
         })
         .collect()
@@ -67,6 +63,19 @@ fn minimal_value(p: &Json) -> Json {
         (Some("array"), _) => json!([]),
         _ => panic!("outside the RG-ST03-4.3 subset: {p}"),
     }
+}
+
+/// Subsets of `n` modules checked by check 5 (RG-ST04-5.2 item 5): all non-empty ones up to
+/// 6 modules, singletons and pairs above.
+pub fn subsets(n: usize) -> Vec<Vec<usize>> {
+    if n <= 6 {
+        return (1..1u32 << n)
+            .map(|mask| (0..n).filter(|i| mask & (1 << i) != 0).collect())
+            .collect();
+    }
+    (0..n)
+        .flat_map(|i| (i..n).map(move |j| if i == j { vec![i] } else { vec![i, j] }))
+        .collect()
 }
 
 /// Runs `c`; `None` if it outlives `TIMEOUT` (then killed and reaped, DA F-12).

@@ -1,5 +1,4 @@
-//! Network observer: a local recording proxy (ST-04 specs RG-ST04-4.1; plan P-13). Frozen.
-//! Cut mode refuses at the proxy; it is not a network cut (clients must read the variables).
+//! Network observer, frozen: see `CONTRIBUTING.md` § Network clients.
 
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader, Write};

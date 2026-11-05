@@ -155,3 +155,49 @@ There is little to cut. The foundation is a plain `match`, the fake module is on
 4. Q-R1 answered and written into the specs and README.
 
 R-4 to R-6 and R-9 to R-11 are recommended before the tooling freezes. R-12 to R-14 are optional.
+
+## Resolution
+
+Branch `st-04/fixes` (on `ccb7e46`). Every finding is applied.
+
+**Q-R1: Quentin chose (a) on 2026-11-05.** The behaviour stays as built: with an unreadable store, every command exits 3 (help and usage errors included), and only `--version` exits 0. CONFLICT-ST04-2 and RG-ST04-2.3 in `02_specs.md` are amended with that date and arbitration, and the README "Exit codes" section says so. `tests/modules.rs` `non_store_files_are_never_written` pins it: on each non-store file, `--help`, a usage error (`module enable --bogus`) and an unknown command all exit 3 `storage_corrupted`, `--version` exits 0, and the file is unchanged.
+
+| Id | What was done |
+|---|---|
+| R-1 | `check_6_network_cut`: runs `module list` and a `disable`/`enable` pair per module, then asserts `o.take()` is empty ("foundation actions tried the network", matrix US-4 row 6). In the loop, `o.take()` runs after **every** call; only undeclared actions assert it empty |
+| R-2 | New `check_6_network_open` (`Mode::Open`): each recorded attempt must target a host of `ALLOWED` for a kind the action declares. `ALLOWED` is empty in ST-04, so every action, `fake-a push` included, must record nothing; adapter stories add rows |
+| R-3 | `cli/mod.rs`: `.long(p.name.replace('_', "-"))`. Unit test `option_names_use_dashes`: `--due-date` parses into input key `due_date`, and `--due_date` is refused |
+| R-4 | Check 4 runs every action of the module, not just the mutating ones. The data-kept comparison still holds |
+| R-5 | Check 5 also compares the module's namespace in both copies as `(record, change)` pairs |
+| R-6 | `support::conformance::subsets(n)`: every subset up to 6 modules, singletons and pairs above. No `.min(16)` and no shift past `n ≤ 6`. Test `subsets_all_up_to_six_then_pairs` (n = 3, 6, 40) |
+| R-7 | `fresh()` puts `ARBITRE_TEST_NOW` into `Env.vars`, so `Surface::call` gets it too. The extra `.env(…)` is gone |
+| R-8 | RG-ST04-4.1, DA F-11 (specs) and P-13 (plan) now describe `take()` and `Attempt { host, port }`. The T-8 frozen list does not exist yet; T-8 writes it from these lines |
+| R-9 | One encoder, `pub fn surfaces::cli::args`. `options` and `call_cli` are deleted. Checks 1 to 6 call the `Cli` surface itself (`Cli.call`), so "CLI only" (P-15) uses the same encoder and spawn as check 7. Check 5 compares `(code, doc)`, the parsed form of the old `(code, stdout)` |
+| R-10 | Core test `another_devices_state_record_leaves_this_device_unchanged`: device B's `fake-a = 1` merged into A leaves A's enabled set empty |
+| R-11 | `signals::deposit` refuses a `source` outside `[a-z][a-z0-9_]*` with `internal_error`, before writing. Test `source_must_be_snake_case` |
+| R-12 | `LoggedAs::as_str`, `Network::as_str` in core, used by `describe`. Core test `logged_as_and_network_public_names` |
+| R-13 | The tautological test is deleted. US-5 row 4 is now `a_module_with_no_action_enables_lists_and_disables` (`wiring/arbitre.rs`): a zero-action module builds a catalogue, and `enable`/`list`/`disable` give the expected outputs. Row 4 of the matrix says the per-action checks are empty by construction |
+| R-14 | `mutating`, `key`, `object` and `text` are shared from `wiring/arbitre.rs` (see below) |
+
+### Simplification applied with the fixes (tooling freezes with ST-04)
+
+1. One input→options encoder: `surfaces::cli::args` (R-9).
+2. One command builder on a store, `support::on(store, vars, args)` (home = `store.parent()`, `--store`, vars). It replaces `Case::cmd`, `Dev::run`'s body, `signals.rs` `on`, `surfaces/cli.rs` `spawn`'s body, and the `module list` call in `support/conformance.rs`. `Case` is now plain `Env`.
+3. `foundation::text(input, key) -> Option<&str>` replaces the four `let Value::Object … unreachable!` copies.
+4. `Change::field(name, bytes)` in core `write.rs`, used in `signal.rs`, `module.rs`, `arbitre_test.rs`, `fake.rs`, `tests/support/mod.rs` and core `tests/module.rs` (×2).
+5. `RecordState::text(name)` in core `merge.rs` replaces `signal.rs` `text` and `fake.rs` `text`. Fake values are now read as strict UTF-8 instead of lossy; CLI input is always UTF-8.
+6. `mutating`, `key()` and `object` are shared. `object` takes any `(&str, Value)` iterator, so it also replaces the inline `Value::Object([..].into())` forms.
+7. `ModuleInfo.enabled` is deleted (R-13 above).
+8. `modules::get(&Modules, id)` replaces `main.rs` `module_of`, the lookup in `not_enabled`, and `revalidate`'s lookup. Its unit test `get_by_id` takes over the assertions of `module_by_first_segment`.
+9. `PreScan.json` replaces `main.rs` `json_mode`. It keeps the old semantics (any `--json` before `--`, a `--store` value included). The old unit test moved to core `pre_scan_reads_json_before_the_terminator`.
+10. `support::run` is `run_timed(c).expect("no hang")`, so every test command shares one `Run` construction and the 10 s timeout.
+11. Not applied: `jiff::tz::TimeZone` has no `Default` impl in jiff 0.2.39, so `SimClock` (which derives `Default`) keeps `RefCell<Option<TimeZone>>`.
+12. Subset enumeration (R-6).
+13. `main.rs`: the `"arbitre.test.signal"` comparison is compiled only with `test-actions`.
+14. The `support/network.rs` module doc is one line pointing to `CONTRIBUTING.md` § Network clients.
+
+Also fixed: `tests/network.rs` `connect` sent its request with `write!`, which writes in fragments. In cut mode the proxy closes after the request line, so a later fragment could get `ECONNRESET` (seen once in a full run). It now sends with one `write_all`, and 30 repeated runs passed.
+
+Checks on `st-04/fixes`: `cargo test --workspace --all-features`, 318 passed (312, minus 3 removed or merged, plus 9 new). `fmt` passes. Both clippy runs pass. `20-st01-browser.sh` and `30-st01-graph.sh` pass. Mutation `-f` on the 11 Std files plus `core/src/write.rs` (Full) and `cli/src/cli/mod.rs` (Std): 317 mutants, 250 caught, 67 unviable, **0 missed**. `core/src/merge.rs` (Full), `--re RecordState::text`: 3/3 caught. No new equivalent.
+
+Not done: RG-ST04-4.3 "exit 0 only with a named degraded mode" is still not asserted. No field name for a degraded mode is specified yet, and no ST-04 action can return 0 while declaring a network kind.

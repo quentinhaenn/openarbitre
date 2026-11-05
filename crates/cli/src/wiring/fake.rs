@@ -4,16 +4,16 @@
 use std::collections::BTreeSet;
 
 use arbitre_core::{
-    ActionDescriptor, ActionError, Change, Context, Field, FieldValue, LocalBoxFuture, LoggedAs,
-    Module, ModuleStore, Network, Output, Problem, RecordId, Schema, Status, Store, StoreError,
-    Value,
+    ActionDescriptor, ActionError, Change, Context, LocalBoxFuture, LoggedAs, Module, ModuleStore,
+    Network, Output, Problem, RecordId, Schema, Status, Store, StoreError, Value,
 };
 use arbitre_sqlite::SqliteStore;
 
-use super::foundation::{action, list, prop, string};
+use super::foundation::{action, key, list, mutating, object, prop, string, text};
 use crate::store::{map_apply, map_store};
 
 const ENTRY: &str = "entry";
+const VALUE: &str = "value";
 
 pub struct Fake {
     id: &'static str,
@@ -35,23 +35,8 @@ impl<S: Store> Module<S> for Fake {
     /// declared `relay`.
     fn actions(&self) -> Vec<ActionDescriptor> {
         let n = |verb: &str| format!("{}.{verb}", self.id);
-        let key = || {
-            prop(
-                "key",
-                "Entry key.",
-                true,
-                Schema::String {
-                    min_length: Some(1),
-                    max_length: None,
-                },
-            )
-        };
         let value = || prop("value", "Entry value.", true, string(None));
         let entry = || vec![prop("key", "Entry key.", true, string(None)), value()];
-        let mutating = |a: ActionDescriptor| ActionDescriptor {
-            mutating: true,
-            ..a
-        };
         vec![
             mutating(action(
                 &n("put"),
@@ -107,13 +92,7 @@ impl<S: Store> Module<S> for Fake {
         Box::pin(async move {
             let view = &ctx.store;
             let verb = action.rsplit('.').next().unwrap_or(action);
-            let Value::Object(o) = input else {
-                unreachable!("input conforms to an object schema")
-            };
-            let text = |k: &str| match o.get(k) {
-                Some(Value::Str(s)) => s.clone(),
-                _ => unreachable!("{k} is required"),
-            };
+            let text = |k: &str| text(&input, k).expect("required").to_string();
             match verb {
                 "list" => {
                     let entries = view
@@ -123,9 +102,7 @@ impl<S: Store> Module<S> for Fake {
                         .into_iter()
                         .filter_map(|(key, st)| present_value(&st).map(|v| entry(key, v)))
                         .collect();
-                    Ok(Value::Object(
-                        [("entries".to_string(), Value::List(entries))].into(),
-                    ))
+                    Ok(object([("entries", Value::List(entries))]))
                 }
                 "push" => Err(ActionError::tool_error(
                     "relay_not_configured",
@@ -151,7 +128,7 @@ impl<S: Store> Module<S> for Fake {
                         }
                         _ => {
                             write(view, &key, Change::Delete).await?;
-                            Ok(Value::Object(Default::default()))
+                            Ok(object([]))
                         }
                     }
                 }
@@ -169,9 +146,7 @@ impl<S: Store> Module<S> for Fake {
             let mut problems = Vec::new();
             for (category, id) in records {
                 let st = view.state(category, id).await?;
-                if st.as_ref().and_then(|s| s.fields.get(&field())).map(text)
-                    == Some("invalid".into())
-                {
+                if st.and_then(|s| s.text(VALUE)).as_deref() == Some("invalid") {
                     problems.push(Problem {
                         record: RecordId {
                             module: view.module().into(),
@@ -188,40 +163,20 @@ impl<S: Store> Module<S> for Fake {
     }
 }
 
-fn field() -> Field {
-    Field("value".into())
-}
-
 fn value_change(value: &str) -> Change {
-    Change::Field {
-        name: field(),
-        value: FieldValue(value.as_bytes().to_vec()),
-    }
-}
-
-fn text(w: &arbitre_core::Write) -> String {
-    match &w.change {
-        Change::Field { value, .. } => String::from_utf8_lossy(&value.0).into_owned(),
-        Change::Delete => unreachable!("a field winner is a field write"),
-    }
+    Change::field(VALUE, value.as_bytes())
 }
 
 /// `value` of a present entry; `None` if absent or deleted.
 fn present_value(st: &arbitre_core::RecordState) -> Option<String> {
     match st.status {
-        Status::Present => st.fields.get(&field()).map(text),
+        Status::Present => st.text(VALUE),
         Status::Deleted(_) => None,
     }
 }
 
 fn entry(key: String, value: String) -> Value {
-    Value::Object(
-        [
-            ("key".to_string(), Value::Str(key)),
-            ("value".to_string(), Value::Str(value)),
-        ]
-        .into(),
-    )
+    object([("key", Value::Str(key)), ("value", Value::Str(value))])
 }
 
 async fn write<S: Store>(

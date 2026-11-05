@@ -20,10 +20,7 @@ fn put(id: &str, v: &str) -> (String, String, Change) {
     (
         "entry".into(),
         id.into(),
-        Change::Field {
-            name: Field("value".into()),
-            value: FieldValue(v.as_bytes().to_vec()),
-        },
+        Change::field("value", v.as_bytes()),
     )
 }
 
@@ -104,6 +101,15 @@ fn pre_scan_reads_store_and_first_word() {
 }
 
 #[test]
+fn pre_scan_reads_json_before_the_terminator() {
+    // RG-ST03-2.1 (was `main.rs` `json_mode`).
+    assert!(pre_scan(&["x", "--json"]).json);
+    assert!(!pre_scan(&["x", "--", "--json"]).json);
+    assert!(!pre_scan(&[]).json);
+    assert!(!pre_scan(&["x"]).json);
+}
+
+#[test]
 fn state_record_is_per_device() {
     // RG-ST04-1.5, plan P-6.
     let r = state_record(DeviceId::from_u128(0xab));
@@ -124,10 +130,7 @@ fn enabled_from_reads_only_ones_of_the_build() {
     let rec = state_record(DeviceId::from_u128(D));
     let raw = |m: &str, v: &[u8]| LocalChange {
         record: rec.clone(),
-        change: Change::Field {
-            name: Field(m.into()),
-            value: FieldValue(v.to_vec()),
-        },
+        change: Change::field(m, v),
         author: Author::CliUser,
     };
     let on = LocalChange {
@@ -144,6 +147,32 @@ fn enabled_from_reads_only_ones_of_the_build() {
     ready(s.apply_local(c.now() + 1, &[off])).expect("apply");
     let st = ready(s.state(&rec)).expect("state").expect("present");
     assert!(enabled_from(Some(&st), &build).is_empty());
+}
+
+#[test]
+fn another_devices_state_record_leaves_this_device_unchanged() {
+    // Matrix US-1 row 10, PROP-ST04-7.
+    let (a, b) = (DeviceId::from_u128(D), DeviceId::from_u128(D + 1));
+    let (sa, sb) = (SimStore::new(a), SimStore::new(b));
+    let on = LocalChange {
+        record: state_record(b),
+        change: state_change("fake-a", true),
+        author: Author::CliUser,
+    };
+    ready(sb.apply_local(1, &[on])).expect("apply on b");
+    let batch: Vec<_> = ready(sb.writes_since(Position::START))
+        .expect("writes")
+        .into_iter()
+        .map(|(_, w)| w)
+        .collect();
+    ready(sa.apply(&batch)).expect("merge on a");
+    let mine = ready(sa.state(&state_record(a))).expect("state");
+    assert!(enabled_from(mine.as_ref(), &["fake-a"]).is_empty());
+    let theirs = ready(sa.state(&state_record(b))).expect("state");
+    assert_eq!(
+        enabled_from(theirs.as_ref(), &["fake-a"]),
+        BTreeSet::from(["fake-a"])
+    );
 }
 
 #[test]

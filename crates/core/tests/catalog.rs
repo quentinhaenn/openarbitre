@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use arbitre_core::Value;
 use arbitre_core::{
-    ActionDescriptor, Catalog, CatalogError, LoggedAs, Property, Schema, command_path,
+    ActionDescriptor, Catalog, CatalogError, LoggedAs, Network, Property, Schema, command_path,
     conforms_input, conforms_output, encode, mcp_name, parse_text,
 };
 
@@ -727,4 +727,13 @@ fn duplicate_module_id_is_refused() {
         &[("m", vec![action("m.a")]), ("m", vec![action("m.b")])],
         &["\"m\"", "twice"],
     );
+}
+
+#[test]
+fn logged_as_and_network_public_names() {
+    // The names `module list` gives (07_review R-12).
+    let l = [LoggedAs::None, LoggedAs::Delete, LoggedAs::Move].map(LoggedAs::as_str);
+    assert_eq!(l, ["none", "delete", "move"]);
+    let n = [Network::Calendar, Network::Relay, Network::Ai].map(Network::as_str);
+    assert_eq!(n, ["calendar", "relay", "ai"]);
 }

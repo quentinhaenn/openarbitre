@@ -33,11 +33,33 @@ pub enum LoggedAs {
     Move,
 }
 
+impl LoggedAs {
+    /// Public name: `none`, `delete`, `move`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LoggedAs::None => "none",
+            LoggedAs::Delete => "delete",
+            LoggedAs::Move => "move",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Network {
     Calendar,
     Relay,
     Ai,
+}
+
+impl Network {
+    /// Public name: `calendar`, `relay`, `ai`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Network::Calendar => "calendar",
+            Network::Relay => "relay",
+            Network::Ai => "ai",
+        }
+    }
 }
 
 /// The schema subset of RG-ST03-4.3 (frozen after ST-04). String lengths count characters.

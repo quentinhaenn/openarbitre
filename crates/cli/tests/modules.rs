@@ -20,13 +20,11 @@ fn dev(tag: &str) -> Dev {
 
 impl Dev {
     fn run(&self, args: &[&str], json: bool) -> Run {
-        let s = self.store.display().to_string();
         let mut v = args.to_vec();
-        v.extend(["--store", s.as_str()]);
         if json {
             v.push("--json");
         }
-        arbitre(&self.home, &v)
+        run(&mut on(&self.store, &[], &v))
     }
 
     #[track_caller]
@@ -184,9 +182,12 @@ fn non_store_files_are_never_written() {
     let sqlite_no_table: &[u8] = b"SQLite format 3\0";
     for content in [&b"not a store"[..], b"x", sqlite_no_table] {
         std::fs::write(&d.store, content).expect("write");
-        let r = d.run(&["--help"], true);
-        let (_, code, id) = failure(&doc(&r));
-        assert_eq!((code, id.as_str()), (3, "storage_corrupted"), "{content:?}");
+        // Q-R1 (a): help and usage errors alike exit 3; only `--version` exits 0.
+        for args in [&["--help"][..], &["module", "enable", "--bogus"], &["nope"]] {
+            let r = d.run(args, true);
+            let (_, code, id) = failure(&doc(&r));
+            assert_eq!((code, id.as_str()), (3, "storage_corrupted"), "{args:?}");
+        }
         assert_eq!(bytes(&d.store).as_deref(), Some(content), "file untouched");
         assert_eq!(d.run(&["--version"], false).code, 0);
     }

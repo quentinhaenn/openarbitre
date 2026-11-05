@@ -5,71 +5,65 @@
 mod support;
 
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
 
 use serde_json::{Value as Json, json};
 use support::conformance::{
-    ModuleInfo, last_position, minimal_input, modules, modules_written_after, run_timed,
+    ModuleInfo, last_position, minimal_input, modules, modules_written_after, run_timed, subsets,
 };
 use support::network::{Mode, Observer};
-use support::surfaces::{self, Env};
+use support::surfaces::cli::Cli;
+use support::surfaces::{self, Called, Env, Surface};
 use support::*;
 
 const NOW: &str = "1768485900000";
 
-struct Case {
-    home: PathBuf,
-    env: Env,
-}
+/// Hosts each network kind may reach in open mode (RG-ST04-4.4): `(kind, host)`. Empty in
+/// ST-04; an adapter story adds its rows.
+const ALLOWED: &[(&str, &str)] = &[];
 
-/// Fresh store, every toggleable module enabled, observer variables applied.
-fn fresh(tag: &str, observer: &Observer) -> Case {
-    let home = tmp(tag);
+/// Fresh store, every toggleable module enabled, observer variables and pinned time applied.
+fn fresh(tag: &str, observer: &Observer) -> Env {
+    let mut vars = observer.env();
+    vars.push(("ARBITRE_TEST_NOW".into(), NOW.into()));
     let env = Env {
-        store: home.join("arbitre.db"),
-        vars: observer.env(),
+        store: tmp(tag).join("arbitre.db"),
+        vars,
     };
-    let c = Case { home, env };
-    for m in toggleable(&c) {
-        c.switch(&m.id, true);
+    for m in toggleable(&env) {
+        switch(&env, &m.id, true);
     }
-    c
+    env
 }
 
-fn toggleable(c: &Case) -> Vec<ModuleInfo> {
-    modules(&c.home, &c.env.store)
+fn toggleable(env: &Env) -> Vec<ModuleInfo> {
+    modules(&env.store)
 }
 
-impl Case {
-    fn cmd(&self, args: &[&str]) -> std::process::Command {
-        let s = self.env.store.display().to_string();
-        let mut v = args.to_vec();
-        v.extend(["--store", s.as_str(), "--json"]);
-        let mut c = cmd(&self.home, &v);
-        c.envs(self.env.vars.iter().cloned())
-            .env("ARBITRE_TEST_NOW", NOW);
-        c
-    }
+/// `args --json` on `env`.
+fn exec(env: &Env, args: &[&str]) -> Run {
+    let args = [args, &["--json"]].concat();
+    run_timed(&mut on(&env.store, &env.vars, &args)).expect("no hang")
+}
 
-    fn switch(&self, m: &str, on: bool) {
-        let verb = if on { "enable" } else { "disable" };
-        let r = run_timed(&mut self.cmd(&["module", verb, "--module", m])).expect("no hang");
-        assert_eq!(r.code, 0, "{verb} {m}: {}", r.stdout);
-    }
+fn switch(env: &Env, m: &str, on: bool) {
+    let verb = if on { "enable" } else { "disable" };
+    let r = exec(env, &["module", verb, "--module", m]);
+    assert_eq!(r.code, 0, "{verb} {m}: {}", r.stdout);
+}
 
-    /// Copy of the store file into a new case (same device, same data).
-    fn copy(&self, tag: &str) -> Case {
-        let home = tmp(tag);
-        let store = home.join("arbitre.db");
-        std::fs::copy(&self.env.store, &store).expect("copy store");
-        Case {
-            home,
-            env: Env {
-                store,
-                vars: self.env.vars.clone(),
-            },
-        }
+/// Copy of the store file into a new directory (same device, same data).
+fn copy(env: &Env, tag: &str) -> Env {
+    let store = tmp(tag).join("arbitre.db");
+    std::fs::copy(&env.store, &store).expect("copy store");
+    Env {
+        store,
+        vars: env.vars.clone(),
     }
+}
+
+/// Action `a` with its minimal input, through the CLI surface (checks 1 to 6, P-15).
+fn call(env: &Env, a: &Json) -> Called {
+    Cli.call(env, a["name"].as_str().expect("name"), &input_of(a))
 }
 
 fn names(m: &ModuleInfo) -> BTreeSet<String> {
@@ -85,36 +79,19 @@ fn input_of(a: &Json) -> Json {
     minimal_input(&schema)
 }
 
-fn path(name: &str) -> Vec<&str> {
-    name.split('.').collect()
-}
-
-/// Options of a minimal input (the RG-ST03-4.3 table; lists are empty, booleans false).
-fn options(input: &Json) -> Vec<String> {
-    let mut v = Vec::new();
-    for (k, x) in input.as_object().expect("object") {
-        let opt = format!("--{}", k.replace('_', "-"));
-        match x {
-            Json::String(s) => v.extend([opt, s.clone()]),
-            Json::Number(n) => v.extend([opt, n.to_string()]),
-            _ => {}
-        }
-    }
-    v
-}
-
-fn call_cli(c: &Case, a: &Json) -> Option<Run> {
-    let name = a["name"].as_str().expect("name");
-    let opts = options(&input_of(a));
-    let mut args = path(name);
-    args.extend(opts.iter().map(String::as_str));
-    run_timed(&mut c.cmd(&args))
-}
-
-fn surface_names(c: &Case) -> Vec<(String, BTreeSet<String>)> {
+fn surface_names(env: &Env) -> Vec<(String, BTreeSet<String>)> {
     surfaces::all()
         .iter()
-        .map(|s| (s.name().to_string(), s.actions(&c.env)))
+        .map(|s| (s.name().to_string(), s.actions(env)))
+        .collect()
+}
+
+/// Writes of namespace `m`, with their positions.
+fn namespace(env: &Env, m: &str) -> Vec<(arbitre_core::Position, arbitre_core::Write)> {
+    snapshot(&env.store)
+        .0
+        .into_iter()
+        .filter(|(_, w)| w.record.module == m)
         .collect()
 }
 
@@ -127,17 +104,16 @@ fn checks_1_2_visible_when_enabled_hidden_and_refused_when_disabled() {
         for (s, seen) in surface_names(&c) {
             assert!(own.is_subset(&seen), "{s}: {} visible", m.id);
         }
-        c.switch(&m.id, false);
+        switch(&c, &m.id, false);
         for (s, seen) in surface_names(&c) {
             assert!(own.is_disjoint(&seen), "{s}: {} hidden", m.id);
         }
-        let before = snapshot(&c.env.store);
+        let before = snapshot(&c.store);
         for a in &m.actions {
-            let r = call_cli(&c, a).expect("no hang");
-            assert_eq!(r.code, 4, "{}", a["name"]);
+            assert_eq!(call(&c, a).code, 4, "{}", a["name"]);
         }
-        assert_eq!(snapshot(&c.env.store), before, "{}: nothing written", m.id);
-        c.switch(&m.id, true);
+        assert_eq!(snapshot(&c.store), before, "{}: nothing written", m.id);
+        switch(&c, &m.id, true);
     }
 }
 
@@ -146,24 +122,17 @@ fn checks_3_4_data_kept_and_namespace_isolated() {
     let o = Observer::start(Mode::Cut);
     let c = fresh("conf-34", &o);
     for m in toggleable(&c) {
-        let after_setup = last_position(&c.env.store);
-        for a in m.actions.iter().filter(|a| a["mutating"] == true) {
-            call_cli(&c, a).expect("no hang");
+        let after_setup = last_position(&c.store);
+        for a in &m.actions {
+            call(&c, a);
         }
-        for w in modules_written_after(&c.env.store, after_setup) {
+        for w in modules_written_after(&c.store, after_setup) {
             assert_eq!(w, m.id, "{} wrote outside its namespace", m.id);
         }
-        let ns = |s: &Path| -> Vec<_> {
-            snapshot(s)
-                .0
-                .into_iter()
-                .filter(|(_, w)| w.record.module == m.id)
-                .collect()
-        };
-        let before = ns(&c.env.store);
-        c.switch(&m.id, false);
-        c.switch(&m.id, true);
-        assert_eq!(ns(&c.env.store), before, "{}: data kept", m.id);
+        let before = namespace(&c, &m.id);
+        switch(&c, &m.id, false);
+        switch(&c, &m.id, true);
+        assert_eq!(namespace(&c, &m.id), before, "{}: data kept", m.id);
     }
 }
 
@@ -172,25 +141,26 @@ fn check_5_every_subset_works_alone() {
     let o = Observer::start(Mode::Cut);
     let base = fresh("conf-5", &o);
     let all = toggleable(&base);
-    let ids: Vec<_> = all.iter().map(|m| m.id.clone()).collect();
-    let pairs_only = ids.len() > 6;
-    for mask in 1u32..(1 << ids.len().min(16)) {
-        let subset: Vec<_> = (0..ids.len()).filter(|i| mask & (1 << i) != 0).collect();
-        if pairs_only && subset.len() > 2 {
-            continue;
-        }
+    // Same data = same `(record, change)` pairs: stamps differ (`part` has extra writes).
+    let data = |e: &Env, m: &str| -> Vec<_> {
+        namespace(e, m)
+            .into_iter()
+            .map(|(_, w)| (w.record, w.change))
+            .collect()
+    };
+    for subset in subsets(all.len()) {
         for m in subset.iter().map(|&i| &all[i]) {
             for a in &m.actions {
-                let full = base.copy("conf-5-full");
-                let part = base.copy("conf-5-part");
-                for (i, id) in ids.iter().enumerate() {
+                let full = copy(&base, "conf-5-full");
+                let part = copy(&base, "conf-5-part");
+                for (i, other) in all.iter().enumerate() {
                     if !subset.contains(&i) {
-                        part.switch(id, false);
+                        switch(&part, &other.id, false);
                     }
                 }
-                let (x, y) = (call_cli(&full, a), call_cli(&part, a));
-                let (x, y) = (x.expect("no hang"), y.expect("no hang"));
-                assert_eq!((x.code, &x.stdout), (y.code, &y.stdout), "{}", a["name"]);
+                let (x, y) = (call(&full, a), call(&part, a));
+                assert_eq!((x.code, &x.doc), (y.code, &y.doc), "{}", a["name"]);
+                assert_eq!(data(&full, &m.id), data(&part, &m.id), "{}", a["name"]);
             }
         }
     }
@@ -200,20 +170,52 @@ fn check_5_every_subset_works_alone() {
 fn check_6_network_cut() {
     let o = Observer::start(Mode::Cut);
     let c = fresh("conf-6", &o);
-    o.take();
+    // Matrix US-4 row 6: the foundation actions, cut.
+    assert_eq!(exec(&c, &["module", "list"]).code, 0);
+    for m in toggleable(&c) {
+        switch(&c, &m.id, false);
+        switch(&c, &m.id, true);
+    }
+    assert!(o.take().is_empty(), "foundation actions tried the network");
     for m in toggleable(&c) {
         for a in &m.actions {
-            let r = call_cli(&c, a).unwrap_or_else(|| panic!("{} hangs", a["name"]));
+            let r = call(&c, a);
+            let seen = o.take();
             let declared = !a["requires_network"].as_array().expect("list").is_empty();
             if declared {
-                assert!([0, 1, 3].contains(&r.code), "{}: {}", a["name"], r.stdout);
+                assert!([0, 1, 3].contains(&r.code), "{}: {}", a["name"], r.doc);
                 if r.code != 0 {
-                    let (_, _, id) = failure(&doc(&r));
+                    let (_, _, id) = failure(&r.doc);
                     assert!(!id.is_empty());
                 }
             } else {
-                assert!([0, 1].contains(&r.code), "{}: {}", a["name"], r.stdout);
-                assert!(o.take().is_empty(), "{} tried the network", a["name"]);
+                assert!([0, 1].contains(&r.code), "{}: {}", a["name"], r.doc);
+                assert!(seen.is_empty(), "{} tried the network", a["name"]);
+            }
+        }
+    }
+}
+
+#[test]
+fn check_6_network_open() {
+    // RG-ST04-4.4, AC-4.3: every attempt targets a host allowed for a declared kind.
+    let o = Observer::start(Mode::Open);
+    let c = fresh("conf-6-open", &o);
+    assert!(o.take().is_empty(), "foundation actions tried the network");
+    for m in toggleable(&c) {
+        for a in &m.actions {
+            let kinds: Vec<_> = a["requires_network"]
+                .as_array()
+                .expect("list")
+                .iter()
+                .map(|k| k.as_str().expect("kind"))
+                .collect();
+            call(&c, a);
+            for at in o.take() {
+                let allowed = ALLOWED
+                    .iter()
+                    .any(|(k, h)| kinds.contains(k) && *h == at.host);
+                assert!(allowed, "{}: {}:{}", a["name"], at.host, at.port);
             }
         }
     }
@@ -236,7 +238,7 @@ fn check_7_parity_across_surfaces() {
             let name = a["name"].as_str().expect("name");
             let calls: Vec<_> = surfaces::all()
                 .iter()
-                .map(|s| s.call(&base.copy("conf-7-call").env, name, &input_of(a)))
+                .map(|s| s.call(&copy(&base, "conf-7-call"), name, &input_of(a)))
                 .collect();
             for w in calls.windows(2) {
                 assert_eq!((w[0].code, &w[0].doc), (w[1].code, &w[1].doc), "{name}");
@@ -258,12 +260,23 @@ fn fake_crud_scenario_offline() {
         &["fake-a", "update", "--key", "k", "--value", "2"],
         &["fake-a", "delete", "--key", "k"],
     ] {
-        let r = run_timed(&mut c.cmd(args)).expect("no hang");
+        let r = exec(&c, args);
         assert_eq!(r.code, 0, "{args:?}: {}", r.stdout);
     }
-    let r = run_timed(&mut c.cmd(&["fake-a", "get", "--key", "k"])).expect("no hang");
+    let r = exec(&c, &["fake-a", "get", "--key", "k"]);
     assert_eq!(r.code, 1, "deleted ⇒ refusal not_found");
     assert!(o.take().is_empty());
+}
+
+#[test]
+fn subsets_all_up_to_six_then_pairs() {
+    // RG-ST04-5.2 item 5: nothing dropped, no shift overflow past 32 modules.
+    assert_eq!(subsets(3).len(), 7);
+    assert_eq!(subsets(6).len(), 63);
+    let big = subsets(40);
+    assert_eq!(big.len(), 40 + 40 * 39 / 2);
+    assert!(big.contains(&vec![39]) && big.contains(&vec![38, 39]));
+    assert!(big.iter().all(|s| s.len() <= 2));
 }
 
 #[test]
@@ -290,16 +303,4 @@ fn minimal_input_of_each_subset_type() {
     );
     let empty = json!({"type": "object", "properties": {}, "additionalProperties": false});
     assert_eq!(minimal_input(&empty), json!({}));
-}
-
-#[test]
-fn a_module_with_no_action_passes_the_loops() {
-    // Matrix US-5 row 4, at helper level.
-    let m = ModuleInfo {
-        id: "empty".into(),
-        enabled: true,
-        actions: vec![],
-    };
-    assert!(names(&m).is_empty());
-    assert!(m.actions.iter().all(|a| !input_of(a).is_null()));
 }

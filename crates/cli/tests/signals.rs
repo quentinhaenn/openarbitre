@@ -6,29 +6,21 @@ use std::path::{Path, PathBuf};
 
 use support::*;
 
-fn on(home: &Path, store: &Path, args: &[&str]) -> std::process::Command {
-    let s = store.display().to_string();
-    let mut v = args.to_vec();
-    v.extend(["--store", s.as_str()]);
-    cmd(home, &v)
-}
-
-fn setup(tag: &str) -> (PathBuf, PathBuf) {
-    let home = tmp(tag);
-    let store = home.join("arbitre.db");
+fn setup(tag: &str) -> PathBuf {
+    let store = tmp(tag).join("arbitre.db");
     let r = run(&mut on(
-        &home,
         &store,
+        &[],
         &["module", "enable", "--module", "fake-a"],
     ));
     assert_eq!(r.code, 0, "{}", r.stderr);
-    (home, store)
+    store
 }
 
-fn signal(home: &Path, store: &Path, source: &str, message: &str) {
+fn signal(store: &Path, source: &str, message: &str) {
     let mut c = on(
-        home,
         store,
+        &[],
         &["test", "signal", "--source", source, "--message", message],
     );
     assert_eq!(run(&mut c).code, 0);
@@ -44,9 +36,9 @@ fn shown(r: &Run, message: &str) -> usize {
 #[test]
 fn shown_once_on_stderr() {
     // Matrix US-6 rows 1-2.
-    let (home, store) = setup("sig-once");
-    signal(&home, &store, "calendar_refresh", "calendar not refreshed");
-    let first = run(&mut on(&home, &store, &["fake-a", "list", "--json"]));
+    let store = setup("sig-once");
+    signal(&store, "calendar_refresh", "calendar not refreshed");
+    let first = run(&mut on(&store, &[], &["fake-a", "list", "--json"]));
     assert_eq!(first.code, 0);
     assert_eq!(
         shown(&first, "calendar not refreshed"),
@@ -59,7 +51,7 @@ fn shown_once_on_stderr() {
         "not in the result document"
     );
     doc(&first);
-    let second = run(&mut on(&home, &store, &["fake-a", "list"]));
+    let second = run(&mut on(&store, &[], &["fake-a", "list"]));
     assert_eq!(
         shown(&second, "calendar not refreshed"),
         0,
@@ -71,31 +63,31 @@ fn shown_once_on_stderr() {
 #[test]
 fn not_shown_on_help_nor_usage() {
     // Matrix US-6 row 3.
-    let (home, store) = setup("sig-help");
-    signal(&home, &store, "sync", "sync failed");
+    let store = setup("sig-help");
+    signal(&store, "sync", "sync failed");
     for args in [&["--help"][..], &["fake-a", "list", "--bogus"]] {
-        let r = run(&mut on(&home, &store, args));
+        let r = run(&mut on(&store, &[], args));
         assert_eq!(shown(&r, "sync failed"), 0, "{args:?}");
     }
-    let r = run(&mut on(&home, &store, &["fake-a", "list"]));
+    let r = run(&mut on(&store, &[], &["fake-a", "list"]));
     assert_eq!(shown(&r, "sync failed"), 1, "{}", r.stderr);
 }
 
 #[test]
 fn oldest_first() {
     // Matrix US-6 row 5.
-    let (home, store) = setup("sig-order");
+    let store = setup("sig-order");
     let at = |t: &str, msg: &str| {
         let mut c = on(
-            &home,
             &store,
+            &[],
             &["test", "signal", "--source", "s", "--message", msg],
         );
         assert_eq!(run(c.env("ARBITRE_TEST_NOW", t)).code, 0);
     };
     at("2000", "second");
     at("1000", "first");
-    let r = run(&mut on(&home, &store, &["fake-a", "list"]));
+    let r = run(&mut on(&store, &[], &["fake-a", "list"]));
     let lines: Vec<_> = r
         .stderr
         .lines()
@@ -111,17 +103,39 @@ fn oldest_first() {
 #[test]
 fn local_time_from_tz() {
     // DA F-13: the native clock's time zone and pinned time (2026-01-15T14:05:00Z).
-    let (home, store) = setup("sig-tz");
+    let store = setup("sig-tz");
     let mut c = on(
-        &home,
         &store,
+        &[],
         &["test", "signal", "--source", "s", "--message", "tz"],
     );
     assert_eq!(run(c.env("ARBITRE_TEST_NOW", "1768485900000")).code, 0);
-    let r = run(on(&home, &store, &["fake-a", "list"]).env("TZ", "America/New_York"));
+    let r = run(on(&store, &[], &["fake-a", "list"]).env("TZ", "America/New_York"));
     assert!(
         r.stderr.contains("signal (2026-01-15 09:05): tz"),
         "{}",
         r.stderr
     );
+}
+
+#[test]
+fn source_must_be_snake_case() {
+    // RG-ST04-6.1: `source` is part of the record id.
+    let store = setup("sig-source");
+    let before = snapshot(&store);
+    for bad in ["", "Calendar", "1sync", "sync-x", "sync x"] {
+        let args = [
+            "test",
+            "signal",
+            "--source",
+            bad,
+            "--message",
+            "m",
+            "--json",
+        ];
+        let (_, code, id) = failure(&doc(&run(&mut on(&store, &[], &args))));
+        assert_eq!((code, id.as_str()), (3, "internal_error"), "{bad:?}");
+    }
+    assert_eq!(snapshot(&store), before, "nothing written");
+    signal(&store, "sync_2", "ok");
 }
