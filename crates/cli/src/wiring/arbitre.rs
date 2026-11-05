@@ -4,8 +4,9 @@
 use std::collections::BTreeSet;
 
 use arbitre_core::{
-    ActionDescriptor, ActionError, Author, Clock, LocalChange, LoggedAs, Property, RecordId,
-    RecordState, Schema, Store, Value, enabled_from, encode, state_change, state_record,
+    ActionDescriptor, ActionError, Author, Clock, LocalChange, LoggedAs, ModuleStore, Position,
+    Property, RecordId, RecordState, Schema, Status, Store, Value, enabled_from, encode,
+    state_change, state_record,
 };
 use arbitre_sqlite::SqliteStore;
 
@@ -192,6 +193,11 @@ fn switch(input: &Value, on: bool, env: &Env<'_>) -> Result<Value, ActionError> 
     };
     let (record, st) = state(env.store)?;
     let changed = enabled_from(st.as_ref(), &ids(env.modules)).contains(module.as_str()) != on;
+    let problems = if on && changed {
+        revalidate(module, env)?
+    } else {
+        Vec::new()
+    };
     if changed {
         let change = LocalChange {
             record,
@@ -206,10 +212,42 @@ fn switch(input: &Value, on: bool, env: &Env<'_>) -> Result<Value, ActionError> 
         ("changed", Value::Bool(changed)),
     ];
     if on {
-        // T-5: revalidation (P-10) fills this, before the state write.
-        out.push(("problems", Value::List(vec![])));
+        out.push(("problems", Value::List(problems)));
     }
     Ok(object(out))
+}
+
+/// Revalidates every present record of `module` (P-10): `{category, id, problem, message}`.
+fn revalidate(module: &str, env: &Env<'_>) -> Result<Vec<Value>, ActionError> {
+    let Some(m) = env.modules.iter().find(|m| m.id() == module) else {
+        unreachable!("module is in the build enum")
+    };
+    let keys: BTreeSet<_> = block_on(env.store.writes_since(Position::START))?
+        .map_err(map_store)?
+        .into_iter()
+        .filter(|(_, w)| w.record.module == module)
+        .map(|(_, w)| w.record)
+        .collect();
+    let mut records = Vec::new();
+    for r in keys {
+        let st = block_on(env.store.state(&r))?.map_err(map_store)?;
+        if st.is_some_and(|s| s.status == Status::Present) {
+            records.push((r.category, r.id));
+        }
+    }
+    let view = ModuleStore::new(env.store, m.id(), env.author, env.clock);
+    let problems = block_on(m.revalidate(&records, &view))?.map_err(map_store)?;
+    Ok(problems
+        .into_iter()
+        .map(|p| {
+            object(vec![
+                ("category", Value::Str(p.record.category)),
+                ("id", Value::Str(p.record.id)),
+                ("problem", Value::Str(p.id)),
+                ("message", Value::Str(p.message)),
+            ])
+        })
+        .collect())
 }
 
 /// Every module of the build with its state; actions only when enabled (RG-ST04-2.1).

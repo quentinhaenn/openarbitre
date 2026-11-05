@@ -246,6 +246,17 @@ fn enable_reports_invalid_records() {
 }
 
 #[test]
+fn enable_skips_deleted_records() {
+    // Plan P-10: deleted records are not revalidated.
+    let d = dev("mod-revalidate-deleted");
+    d.enable("fake-a");
+    d.ok(&["fake-a", "put", "--key", "k", "--value", "invalid"]);
+    d.ok(&["fake-a", "delete", "--key", "k"]);
+    d.disable("fake-a");
+    assert_eq!(d.enable("fake-a")["problems"], serde_json::json!([]));
+}
+
+#[test]
 fn relay_action_fails_explicitly() {
     // Matrix US-4 row 5 (no relay is ever configured in ST-04).
     let d = dev("mod-push");
