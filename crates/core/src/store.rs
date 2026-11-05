@@ -122,6 +122,8 @@ pub trait Store {
     -> Result<Vec<Write>, ApplyError>;
 
     /// Stores a received batch all or none; `K' = max_lex(K, max batch)` (RG-ST02-1.6, 5.3, Q-A guard).
+    /// A write that changes nothing succeeds even on full storage: SQLite writes no page for
+    /// unchanged rows, so the full-storage fault never fires (Q-R1, ST-02 04_plan.md).
     async fn apply(&self, batch: &[Write]) -> Result<Report, ApplyError>;
 
     /// Writes of a record, `Log::writes` order (RG-ST02-5.1).
@@ -143,7 +145,7 @@ pub trait Store {
     /// Mark of `peer`; `None` = nothing received (RG-ST02-5.4).
     async fn watermark(&self, peer: DeviceId) -> Result<Option<Watermark>, StoreError>;
 
-    /// `M(peer) := max(M(peer), to)` (RG-ST02-5.4).
+    /// `M(peer) := max(M(peer), to)` (RG-ST02-5.4). A no-op advance succeeds even on full storage (see `apply`).
     async fn advance_watermark(&self, peer: DeviceId, to: Watermark) -> Result<(), StoreError>;
 }
 

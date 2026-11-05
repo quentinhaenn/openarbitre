@@ -497,6 +497,82 @@ proptest! {
     }
 }
 
+/// A batch of `n` writes plus the commit costs `n + 1`: a budget of `n` fails, `n + 1` succeeds.
+#[test]
+fn budget_equal_to_the_cost_succeeds() {
+    let n = 3;
+    let s = sim();
+    s.full_after(n);
+    assert_eq!(
+        ready(s.apply_local(1, &changes(n, 0))),
+        Err(ApplyError::Store(StoreError::StorageFull))
+    );
+    s.full_after(n + 1);
+    ready(s.apply_local(1, &changes(n, 0))).expect("budget = cost");
+}
+
+/// Same bound on the received path (E-ST02-2 level "full at commit").
+#[test]
+fn received_batch_full_at_commit() {
+    let n = 3;
+    let batch: Vec<Write> = (0..n as u64)
+        .map(|i| {
+            write(
+                record("r"),
+                field(&format!("f{i}"), "a"),
+                stamp(1_000_000 + i, 0, PEER),
+            )
+        })
+        .collect();
+    let s = sim();
+    let before = sigma(&s);
+    s.full_after(n);
+    assert_eq!(
+        ready(s.apply(&batch)),
+        Err(ApplyError::Store(StoreError::StorageFull))
+    );
+    assert_eq!(sigma(&s), before);
+    s.full_after(n + 1);
+    ready(s.apply(&batch)).expect("budget = cost");
+}
+
+/// `clock_state()` is the stamp of the last write after `apply_local`.
+#[test]
+fn clock_state_follows_the_last_stamp() {
+    let s = sim();
+    let ws = ready(s.apply_local(1_000, &changes(3, 0))).unwrap();
+    let last = ws.last().unwrap().stamp;
+    assert_eq!(
+        s.clock_state(),
+        ClockState {
+            l: last.l,
+            c: last.c
+        }
+    );
+    assert_ne!(s.clock_state(), ClockState::default());
+}
+
+/// Q-R1 (b): a no-op write on full storage succeeds (`Store` trait doc).
+#[test]
+fn no_op_writes_on_full_storage_succeed() {
+    let s = sim();
+    let batch = [write(
+        record("r"),
+        field("f", "a"),
+        stamp(1_000_000, 0, PEER),
+    )];
+    ready(s.apply(&batch)).unwrap();
+    ready(s.advance_watermark(dev(PEER), Watermark(5, 0))).unwrap();
+    let before = sigma(&s);
+    s.full_after(0);
+    ready(s.apply(&batch)).expect("stored batch");
+    ready(s.apply(&[])).expect("empty batch");
+    for to in [Watermark(5, 0), Watermark(1, 0)] {
+        ready(s.advance_watermark(dev(PEER), to)).expect("no-op watermark");
+    }
+    assert_eq!(sigma(&s), before);
+}
+
 /// US-2 case 8: received batch on full storage, `K` unchanged.
 #[test]
 fn us2_case8_received_batch_on_full_storage() {

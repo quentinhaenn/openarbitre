@@ -226,6 +226,10 @@ fn hold(p: &Path, d: Duration) -> std::thread::JoinHandle<()> {
     })
 }
 
+/// SQLite's busy handler sleeps in steps that can sum a hair under the
+/// timeout (CI measured 199.9 ms for 200 ms), so lower bounds allow this slack.
+const SLACK: Duration = Duration::from_millis(20);
+
 fn open_wait(p: &Path, ms: u64) -> SqliteStore {
     let o = Options {
         wait: Duration::from_millis(ms),
@@ -244,7 +248,7 @@ fn busy_store_waits_then_reports_busy() {
     let el = t.elapsed();
     assert_eq!(r, Err(busy()));
     assert!(
-        el >= Duration::from_millis(200) && el <= Duration::from_millis(1200),
+        el >= Duration::from_millis(200) - SLACK && el <= Duration::from_millis(1200),
         "{el:?}"
     );
     h.join().unwrap();
@@ -260,6 +264,27 @@ fn short_hold_succeeds() {
     ready(s.apply_local(1, &[put("a", b"x")])).expect("waits the lock out");
     h.join().unwrap();
     assert_eq!(ready(s.writes_since(Position::START)).unwrap().len(), 1);
+}
+
+#[test]
+fn open_busy_is_bounded_by_wait() {
+    let p = path();
+    let raw = Connection::open(&p).unwrap();
+    raw.execute_batch("CREATE TABLE t (x); BEGIN EXCLUSIVE")
+        .unwrap();
+    let wait = Duration::from_millis(200);
+    let o = Options {
+        wait,
+        ..Options::default()
+    };
+    let t = Instant::now();
+    let r = SqliteStore::open(&p, &o);
+    let el = t.elapsed();
+    assert_eq!(r.err(), Some(StoreError::Unavailable(Cause::Busy)));
+    assert!(
+        el >= wait - SLACK && el < wait + Duration::from_secs(1),
+        "{el:?}"
+    );
 }
 
 #[test]
