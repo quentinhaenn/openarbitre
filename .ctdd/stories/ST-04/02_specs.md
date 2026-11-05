@@ -5,7 +5,7 @@
 - Frame: `.ctdd/cadre/02_specs.md` RG-1.1, 1.2, 3.2, 3.7, 5.1 to 5.4, INV-11, 15, 20–23, PROP-1, PROP-2, CONFLIT-1, CONFLIT-6, AMB-12 (arbitrated 2026-11-02: per-device enabled state, data always synced); `.ctdd/cadre/03_archi.md` ("Interfaces à définir": `Module`, `Contexte`, `Port Ia`, `Clock::fuseau`; "Activation des modules"; "Validation après fusion"; D-2); `.ctdd/cadre/04_plan.md` § ST-04, F-12, F-18, F-27, F-37, § Collisions.
 - ST-03 (binding, PR #8): RG-ST03-1.3, 1.4, 1.5, 3.3, 3.6, 4.2, 4.6, 5.2, G.2; AMB-ST03-2 with Q-DA2 (a); plan P-3, P-4, P-11; "ST-04 handover" (Q-R1 (a)).
 - ST-02: `Store` port (`async fn`, no `Send`), `StoreError`, `SqliteStore::open` (creates if absent), `sim_store` (feature `sim`).
-- Date: 2026-11-05 · Status: v1, open questions Q1 to Q7 at the end.
+- Date: 2026-11-05 · Status: v2. Q1 to Q7 answered (a) on 2026-11-05 (§ Resolution); DA iteration 1 folded (§ DA iteration 1 → specs v2, which overrides the rules it names).
 - Codebase context (branch `st-03/story`, read 2026-11-05): `arbitre-core` is `#![no_std]` + `alloc`, no normal dependency; `Clock` has `now()` only; `crates/cli/src/modules.rs` holds the provisional `Wiring { id, descriptors, execute }` and a `Context { store: &SqliteStore, pt, author }`; `wiring/test.rs` declares module `test` and, under id `arbitre`, `arbitre.test-foundation`; `test.not-enabled` returns `ModuleNotEnabled` by hand; futures are driven by one poll on a no-op waker; `crates/cli/tests/support/mod.rs` spawns the binary.
 
 ### Conventions
@@ -68,7 +68,8 @@ Terms of `CONTRIBUTING.md` keep their meaning. New terms (to add to the glossary
 - **Storage** [Q1 (a)]: one record per device in the foundation namespace, `arbitre/module-state/<device-id>`, one field per toggleable module id. Written by `enable`/`disable` in one local apply.
 
 **RG-ST04-1.6: Default enabled state** `@Invariant` [Q2]
-- **Post-conditions** [Q2 (a)]: a device with no enabled-state record has **no** toggleable module enabled. Test builds add `test` (ST-03's test module) to the default, so ST-03's tests keep running unchanged (GAP-ST04-3). The fake modules start disabled like real ones.
+- **Post-conditions** [Q2 (a)]: a device with no enabled-state record has **no** toggleable module enabled, in every build. ST-03's test actions become foundation actions `arbitre.test.*` under `test-actions`, with unchanged command paths (`arbitre test echo`), so they are always on and outside the conformance test (GAP-ST04-3, DA F-1). The fake modules start disabled like real ones.
+- A field value other than `1`/`0` gives the default; a field naming a module that is not in the build is ignored (DA F-15).
 
 **RG-ST04-1.7: The foundation is always on** `@Invariant` [AC-1.7]
 - `arbitre` is not in the `module` enum: `arbitre module disable --module arbitre` is a usage error (exit 2). Same for any id not in the build.
@@ -84,7 +85,7 @@ Terms of `CONTRIBUTING.md` keep their meaning. New terms (to add to the glossary
 | 5 | List | Nominal | `module list --json` | `fake-a` on | every module named with its state; actions only for `fake-a` | 1.1 |
 | 6 | Unknown module | Error | `module enable --module nope` | — | exit 2; store not created | 1.7 |
 | 7 | Disable foundation | Error | `module disable --module arbitre` | — | exit 2 | 1.7 |
-| 8 | Fresh device | Nominal | `--help` | store absent | only `module` (plus `test` in test builds); store still absent | 1.6, 2.4 |
+| 8 | Fresh device | Nominal | `--help` | store absent | only foundation commands (`module`, plus `test` in test builds); store still absent | 1.6, 2.4 |
 | 9 | CI flow (D-2) | Nominal | `ARBITRE_STORE=<tmp>`, enable `fake-a`, run a `fake-a` action | — | both exit 0 | 1.1, 1.6 |
 | 10 | Other device's state | Edge | a write of device B's state record applied to A | A: `fake-a` off | A still sees `fake-a` off | 1.5 |
 
@@ -363,7 +364,7 @@ All in `crates/cli/tests/` (spawning the binary, `--all-features`) unless noted;
 | [AMB-ST04-2] | plan "proxy used by every HTTP client" | Process-level proxy or in-process port? | Q5. |
 | [GAP-ST04-1] | `test.not-enabled` (ST-03) | A hand-made "module not enabled" is obsolete. | Removed; E-ST03-3 row 5 uses a disabled fake module. |
 | [GAP-ST04-2] | `arbitre.test-foundation` (ST-03 handover) | It lives in the test module under id `arbitre`, which RG-ST04-3.4 now refuses. | Moved into the foundation module, under `test-actions`. |
-| [GAP-ST04-3] | ST-03 tests vs a default with nothing enabled | ST-03 tests call `arbitre test …` on an absent store and expect usage (2), not 4. | Test builds add `test` to the default enabled state (RG-ST04-1.6). Moot if Q2 (b). |
+| [GAP-ST04-3] | ST-03 tests vs a default with nothing enabled | ST-03 tests call `arbitre test …` on an absent store and expect usage (2), not 4. | **v2 (DA F-1)**: ST-03's test actions become foundation actions `arbitre.test.*` (same command paths), always on, never seen by the conformance test. No default exception in any build. |
 
 ## Candidate invariants (C-TDD synthesis)
 
@@ -439,3 +440,34 @@ Questions marked **[FREEZES]** fix part of the contract frozen at the end of ST-
 - (a) `arbitre module enable --module diff`: the ST-03 derivation, unchanged. D-2 is read with this form.
 - (b) A positional argument, `arbitre module enable diff`: needs a "positional" marker in the schema subset frozen by ST-03, so a foundation amendment now, used by later modules too.
 - **Recommendation: (a).** One rule for every command; the help shows the option and its accepted values. A positional form can come later, for all actions at once, if users ask for it.
+
+## DA iteration 1 → specs v2 (2026-11-05)
+
+These lines override the rules they name. Detail and reasons: `05_da_review.md`; tasks: `04_plan.md` v2.
+
+| Flaw | Change to the specs |
+|---|---|
+| F-1 [B] | RG-ST04-1.6, GAP-ST04-3: test actions are foundation actions `arbitre.test.*`; nothing enabled by default in any build. Matrix US-5 row 1 reads "green on `fake-a`, `fake-b`". |
+| F-2 | RG-ST04-5.2 item 4: compare only the writes after the setup position. RG-ST04-6.3: the simulator is the foundation action `arbitre.test.signal`. Each conformance check starts from a fresh store with no signal. |
+| F-3 | RG-ST04-1.1, 7.2: the foundation is not a `Module` impl; it holds the whole store. Records of a module = `writes_since(START)` filtered on the module, deleted ones left out. Revalidation runs before the state write; a `StoreError` exits 3 and changes nothing. |
+| F-4 | RG-ST04-3.3: `ModuleStore` fields are private; one constructor; no getter returning the store. |
+| F-5 | RG-ST04-2.3: before parsing, the store is opened only if its header is SQLite with application id `ARBT`. Absent or 0-byte file ⇒ default state. Other content ⇒ exit 3 `storage_corrupted`, file untouched. A location error before parsing ⇒ default state (the action still reports `no_default_store`). |
+| F-6 | RG-ST04-2.2, 2.3: `--store` is read anywhere before `--`; the location is resolved once, before parsing, and the action uses it. |
+| F-7 | RG-ST04-1.1: `module.enable` and `module.disable` exist only when the build has at least one toggleable module; `module.list` always. |
+| F-8 | RG-ST04-3.4: the whole build is validated at every start, then filtered. A toggleable module id must have the name-segment form and must not equal a foundation command word (`module`, `test`). |
+| F-9 | RG-ST04-5.2, 5.4: `Env { store, vars }`, `Called { code, doc }` (code from `doc.error.code` when the surface has none); `actions()` reads what the user sees (CLI: recursive `--help`; MCP: `tools/list`). Per surface: checks 1, 2 (visibility) and 7. CLI only: explicit call ⇒ 4, checks 3 to 6. |
+| F-10 | RG-ST04-5.2 items 5, 7: comparison runs use byte copies of one prepared store and a pinned time (`ARBITRE_TEST_NOW`, read only with `test-actions`). |
+| F-11 | RG-ST04-4.1: frozen observer API `Observer::start(mode)`, `env()`, `records()`. Cut mode is a proxy refusal, not a network cut; a client that ignores the proxy variables needs its own support before its story passes. |
+| F-13 | Matrix US-6: one case with `TZ=America/New_York` and a pinned time checks the local time in the signal line. |
+| F-15 | Matrix US-5 row 4 becomes a unit test of the conformance helpers. `jiff` 0.2 is part of the frozen contract (through `Clock::timezone`). |
+
+## Resolution (Quentin, 2026-11-05)
+
+Binding. Q1 to Q7: **(a)**, the recommendation in every case.
+- **Q1 (a)**: device-local state (enabled modules, signals) lives in the store, foundation namespace, one record per device; no device reads another's.
+- **Q2 (a)**: nothing enabled on a fresh device (test builds add `test`, GAP-ST04-3).
+- **Q3 (a)**: `trait Module<S: Store>`, dyn-compatible, boxed local futures; `Ai` uses the same shape.
+- **Q4 (a)**: `Problem { record, id, message }`; `module enable` revalidates the whole module and lists the problems.
+- **Q5 (a)**: recording proxy through the proxy environment variables; no product code; the fake `relay` action makes no real call.
+- **Q6 (a)**: no-network actions end in exit 0 or 1 with zero attempts, plus a full CRUD scenario on the fake module.
+- **Q7 (a)**: `arbitre module enable --module <id>`; archi D-2 is read with this form.

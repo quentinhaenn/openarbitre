@@ -2,29 +2,52 @@
   "feature": "ST-04 — Modules you can enable, kept apart, with one generic conformance test",
   "started_at": "2026-11-05T00:00:00+00:00",
   "source": ".ctdd/cadre/04_plan.md § ST-04",
-  "current_phase": 2,
+  "current_phase": 6,
   "phases": {
     "1_story": {
       "status": "done",
       "file": ".ctdd/stories/ST-04/01_story.md"
     },
     "2_specs": {
-      "status": "awaiting arbitration",
+      "status": "done",
       "file": ".ctdd/stories/ST-04/02_specs.md",
       "questions_for_quentin": ["Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7"],
-      "note": "branched from st-03/story (PR #8 not merged); rebase on main once ST-03 lands"
+      "note": "Q1 to Q7 answered (a) on 2026-11-05; branched from st-03/story (PR #8 not merged); rebase on main once ST-03 lands"
     },
     "3_archi": {
       "status": "skipped (supporting zone; architectural notes folded into specs)",
       "file": null
     },
     "4_plan": {
-      "status": "pending",
-      "file": null
+      "status": "done",
+      "file": ".ctdd/stories/ST-04/04_plan.md",
+      "version": 2,
+      "zones": ".ctdd/stories/ST-04/zones.toml (content in 04_plan.md, written by T-1)",
+      "history": [
+        ".ctdd/stories/ST-04/history/04_plan_v1.md"
+      ],
+      "note": "v2 folds DA F-1 to F-15; Q-DA1 settled (a) by the plan; jiff no_std + tzdb-bundle-always checked green for wasm32 (2026-11-05)"
     },
     "5_da": {
-      "status": "pending",
-      "file": null
+      "status": "done",
+      "file": ".ctdd/stories/ST-04/05_da_review.md",
+      "iterations": [
+        {
+          "iteration": 1,
+          "verdict": "BLOCKED",
+          "findings": {
+            "blocking": ["F-1"],
+            "major": ["F-2", "F-3", "F-4", "F-5", "F-6", "F-7", "F-8", "F-9", "F-10"],
+            "minor": ["F-11", "F-12", "F-13", "F-14", "F-15"]
+          },
+          "questions_for_quentin": ["Q-DA1"],
+          "note": "Q-DA1 settled (a) by the plan (test-only code, no arbitration reversed); F-1 to F-15 folded into plan v2 and specs v2; no second DA iteration (max 1)",
+          "changes_applied": true
+        }
+      ],
+      "history": [
+        ".ctdd/stories/ST-04/history/05_da_review_v1.md"
+      ]
     },
     "6_skeleton": {
       "status": "pending",
