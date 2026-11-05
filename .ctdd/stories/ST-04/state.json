@@ -2,7 +2,7 @@
   "feature": "ST-04 — Modules you can enable, kept apart, with one generic conformance test",
   "started_at": "2026-11-05T00:00:00+00:00",
   "source": ".ctdd/cadre/04_plan.md § ST-04",
-  "current_phase": 7,
+  "current_phase": 8,
   "phases": {
     "1_story": {
       "status": "done",
@@ -55,12 +55,17 @@
       "note": "38 red (37 new + 1 moved ST-03 row), 3 new green; built on st-03/story (PR #8 not merged)"
     },
     "7_implementation": {
-      "status": "pending",
-      "file": null
+      "status": "done",
+      "file": null,
+      "tasks": {"T-1": "done", "T-2": "done", "T-3": "done", "T-4": "done", "T-5": "done", "T-6": "done", "T-7": "done", "T-8": "pending PR"},
+      "note": "T-8 on st-04/t8 (README, CONTRIBUTING, pr_body.md); push and PR on Quentin's go"
     },
     "8_review": {
-      "status": "pending",
-      "file": null
+      "status": "done",
+      "file": ".ctdd/stories/ST-04/07_review.md",
+      "verdict": "APPROVED WITH FIXES",
+      "questions_for_quentin": ["Q-R1"],
+      "note": "Q-R1 answered (a) on 2026-11-05; R-1 to R-14 applied at b918f95 (318 tests green, mutation 0 missed)"
     }
   },
   "ddd_zone": "supporting",
