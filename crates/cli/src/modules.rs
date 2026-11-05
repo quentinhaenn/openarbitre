@@ -22,12 +22,10 @@ pub fn all() -> Modules {
     all
 }
 
-/// Ids of `modules`, in list order.
 pub fn ids(modules: &Modules) -> Vec<&'static str> {
     modules.iter().map(|m| m.id()).collect()
 }
 
-/// The toggleable module with id `id`.
 pub fn get<'a>(modules: &'a Modules, id: &str) -> Option<&'a dyn Module<SqliteStore>> {
     modules.iter().find(|m| m.id() == id).map(|m| m.as_ref())
 }

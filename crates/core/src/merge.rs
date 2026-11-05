@@ -153,10 +153,7 @@ pub struct Log {
 impl Log {
     /// Empty log of device `device`.
     pub fn new(device: DeviceId) -> Self {
-        Self {
-            clock: HybridClock::new(device),
-            writes: BTreeMap::new(),
-        }
+        Self::with_clock(HybridClock::new(device))
     }
 
     /// Empty log driven by a restored clock (GAP-ST02-1, used by `store::rebuild`).

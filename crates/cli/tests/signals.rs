@@ -123,7 +123,7 @@ fn source_must_be_snake_case() {
     // RG-ST04-6.1: `source` is part of the record id.
     let store = setup("sig-source");
     let before = snapshot(&store);
-    for bad in ["", "Calendar", "1sync", "sync-x", "sync x"] {
+    for bad in ["", "Calendar", "1sync", "sync-x", "sync x", "a__b", "sync_"] {
         let args = [
             "test",
             "signal",

@@ -5,7 +5,7 @@
 
 ## Rule
 
-A shared dependency is declared once, in `[workspace.dependencies]` of the root `Cargo.toml`, even if no component uses it yet. Each component inherits it with `x = { workspace = true }` and adds its own features (they are additive). The workspace fixes the version and turns default features off, unless stated otherwise.
+A shared dependency is declared once, in `[workspace.dependencies]` of the root `Cargo.toml`, by the story whose component first uses it (amendment of 2026-11-05, below). Each component inherits it with `x = { workspace = true }` and adds its own features (they are additive). The workspace fixes the version and turns default features off, unless stated otherwise.
 
 **Adding, removing or changing a shared dependency is a foundation amendment**, outside any story. The same goes for a tool version bump (`scripts/tools.env`, `rust-toolchain.toml`).
 
@@ -21,6 +21,8 @@ A shared dependency is declared once, in `[workspace.dependencies]` of the root 
 | Mutation testing | `cargo-mutants` | 27.1.0 | **outside `Cargo.toml`**: tool, pinned in `scripts/tools.env` | Only maintained tool, `--in-diff` mode | mutagen (abandoned) |
 | Dates and time zones (addition) | `jiff` | 0.2.39 | `default-features = false` | See "Additions" | chrono + chrono-tz |
 | Randomness (addition) | `getrandom` | 0.4.3 | `default-features = false` | See "Additions" | rand |
+
+**Declared only when used (amendment of 2026-11-05).** `tokio`, `reqwest`, `keyring` and `serde` were declared ahead of use and no crate used them; they were removed from the root `Cargo.toml`. The table above stays the reference: the story that first consumes one declares it with the version and declaration given here (bumping the version is then part of that story's amendment). `serde_json` stays (core and CLI tests).
 
 Removed in ST-01: `chrono` (no longer used) and `rusqlite`, which returns in ST-02 in `arbitre-sqlite` alone, as a local dependency. Still local: `clap` (CLI only) and the wasm-bindgen crates (`arbitre-web` only).
 

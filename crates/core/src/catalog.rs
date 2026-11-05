@@ -118,6 +118,11 @@ fn dashed(s: &str, sep: char, lead_alpha: bool) -> bool {
     })
 }
 
+/// `[a-z][a-z0-9]*(_[a-z0-9]+)*`: property names, signal sources.
+pub fn is_snake(s: &str) -> bool {
+    dashed(s, '_', true)
+}
+
 fn check_name(name: &str, module: &str) -> Result<(), String> {
     if name.len() > 64 || !name.split('.').all(|s| dashed(s, '-', true)) {
         return Err(format!("ill-formed name {name:?}"));
@@ -172,7 +177,7 @@ fn check_props(props: &[Property], input: bool) -> Result<(), String> {
     let mut seen = BTreeSet::new();
     for p in props {
         let n = &p.name;
-        if !dashed(n, '_', true) || matches!(n.as_str(), "json" | "store" | "help" | "version") {
+        if !is_snake(n) || matches!(n.as_str(), "json" | "store" | "help" | "version") {
             return Err(format!("reserved or ill-formed property name {n:?}"));
         }
         if !seen.insert(n) {
@@ -280,36 +285,8 @@ pub fn command_path(name: &str) -> Vec<&str> {
         .collect()
 }
 
-/// MCP tool name: `.` → `_` (RG-ST03-4.2, spike S5).
-pub fn mcp_name(name: &str) -> String {
-    name.replace('.', "_")
-}
-
 fn is_date(s: &str) -> bool {
-    let b = s.as_bytes();
-    if b.len() != 10 || b[4] != b'-' || b[7] != b'-' {
-        return false;
-    }
-    let num = |r: core::ops::Range<usize>| {
-        let d = &s[r];
-        if d.bytes().all(|c| c.is_ascii_digit()) {
-            d.parse::<u32>().ok()
-        } else {
-            None
-        }
-    };
-    let (Some(y), Some(m), Some(d)) = (num(0..4), num(5..7), num(8..10)) else {
-        return false;
-    };
-    let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
-    let days = match m {
-        2 if leap => 29,
-        2 => 28,
-        4 | 6 | 9 | 11 => 30,
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        _ => return false,
-    };
-    y >= 1 && (1..=days).contains(&d)
+    s.len() == 10 && s.parse::<jiff::civil::Date>().is_ok_and(|d| d.year() >= 1)
 }
 
 /// Parses one option text against a scalar schema (string, integer, enum, date);
@@ -376,14 +353,9 @@ fn check(schema: &Schema, v: &Value) -> Result<(), String> {
     Ok(())
 }
 
-/// Input conformance (RG-ST03-4.4): exactly the declared keys (booleans and lists always
-/// present), each of its type and within bounds. `Err` = first failure.
-pub fn conforms_input(schema: &Schema, value: &Value) -> Result<(), String> {
-    check(schema, value)
-}
-
-/// Output conformance (RG-ST03-4.5): required keys present, no undeclared key, types and bounds.
-pub fn conforms_output(schema: &Schema, value: &Value) -> Result<(), String> {
+/// Conformance of an input (RG-ST03-4.4) or output (RG-ST03-4.5): exactly the declared
+/// keys, required ones present, each of its type and within bounds. `Err` = first failure.
+pub fn conforms(schema: &Schema, value: &Value) -> Result<(), String> {
     check(schema, value)
 }
 

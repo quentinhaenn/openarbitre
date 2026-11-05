@@ -140,7 +140,6 @@ impl SimStore {
         st.unavailable = 0;
     }
 
-    /// Test hook: current `K`.
     pub fn clock_state(&self) -> ClockState {
         self.state.borrow().clock
     }
