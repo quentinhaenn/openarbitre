@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[dependencies]
+# Time zones, bundled database, no std (ST-04 plan, `jiff` check).
+jiff = { workspace = true, features = ["alloc", "tzdb-bundle-always"] }
+
 [dev-dependencies]
 proptest = { workspace = true }
 # Independent JSON parser for ST-03 tests only (plan P-2).
@@ -25,4 +29,16 @@ required-features = ["sim"]
 
 [[test]]
 name = "store"
+required-features = ["sim"]
+
+[[test]]
+name = "module"
+required-features = ["sim"]
+
+[[test]]
+name = "timezone"
+required-features = ["sim"]
+
+[[test]]
+name = "signal"
 required-features = ["sim"]

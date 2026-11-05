@@ -2,6 +2,7 @@
 //! (ST-01 design; amendments A-1 to A-4, A-10; T-5, T-6).
 
 use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::ops::Bound;
 
@@ -102,6 +103,16 @@ pub enum Status {
 pub struct RecordState {
     pub status: Status,
     pub fields: BTreeMap<Field, Write>,
+}
+
+impl RecordState {
+    /// UTF-8 value of field `name`; `None` if absent or not UTF-8.
+    pub fn text(&self, name: &str) -> Option<String> {
+        match &self.fields.get(&Field(name.into()))?.change {
+            Change::Field { value, .. } => String::from_utf8(value.0.clone()).ok(),
+            Change::Delete => None,
+        }
+    }
 }
 
 /// Projected state `R(S)`, state part.

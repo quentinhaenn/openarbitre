@@ -1,0 +1,15 @@
+# ST-04 zones: format in CONTRIBUTING.md. A file not listed gets Full.
+Std = [
+  "crates/core/src/module.rs",
+  "crates/core/src/ai.rs",
+  "crates/core/src/signal.rs",
+  "crates/core/src/clock.rs",
+  "crates/core/src/catalog.rs",
+  "crates/cli/src/main.rs",
+  "crates/cli/src/modules.rs",
+  "crates/cli/src/store.rs",
+  "crates/cli/src/signals.rs",
+  "crates/cli/src/clock.rs",
+  "crates/cli/src/wiring/arbitre.rs",
+]
+Gen = ["crates/cli/src/wiring/fake.rs", "crates/cli/src/wiring/arbitre_test.rs"]

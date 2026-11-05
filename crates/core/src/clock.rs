@@ -3,6 +3,9 @@
 /// Physical time source, in UTC milliseconds since the Unix epoch (RG-ST01-4.4).
 pub trait Clock {
     fn now(&self) -> u64;
+
+    /// The user's time zone; the database is bundled, browser included (RG-ST04-8.1).
+    fn timezone(&self) -> jiff::tz::TimeZone;
 }
 
 /// Controllable time source, one per simulated device (PROP-ST01-1).
@@ -14,6 +17,8 @@ pub trait Clock {
 pub struct SimClock {
     t: core::cell::Cell<u64>,
     frozen: core::cell::Cell<bool>,
+    /// `None` = UTC.
+    tz: core::cell::RefCell<Option<jiff::tz::TimeZone>>,
 }
 
 #[cfg(feature = "sim")]
@@ -23,6 +28,7 @@ impl SimClock {
         Self {
             t: t.into(),
             frozen: false.into(),
+            tz: None.into(),
         }
     }
 
@@ -46,6 +52,11 @@ impl SimClock {
         }
     }
 
+    /// Sets the time zone `timezone()` returns (default UTC).
+    pub fn set_timezone(&self, tz: jiff::tz::TimeZone) {
+        self.tz.replace(Some(tz));
+    }
+
     /// Freezes the current time.
     pub fn freeze(&self) {
         self.frozen.set(true);
@@ -56,5 +67,9 @@ impl SimClock {
 impl Clock for SimClock {
     fn now(&self) -> u64 {
         self.t.get()
+    }
+
+    fn timezone(&self) -> jiff::tz::TimeZone {
+        self.tz.borrow().clone().unwrap_or(jiff::tz::TimeZone::UTC)
     }
 }

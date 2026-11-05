@@ -1,32 +1,32 @@
 mod cli;
+mod clock;
 mod modules;
+mod signals;
 mod store;
 
-use std::ffi::OsString;
+use std::collections::BTreeSet;
+use std::ffi::{OsStr, OsString};
 use std::io::Write;
 use std::path::PathBuf;
 
 use arbitre_core::{
-    ActionDescriptor, ActionError, Author, Category, conforms_output, document, encode, render,
+    ActionDescriptor, ActionError, Author, Category, Context, ModuleStore, PreScan,
+    conforms_output, document, encode, pre_scan, render,
 };
+use arbitre_sqlite::SqliteStore;
 use clap::ArgMatches;
+use clap::error::ErrorKind;
 
 use cli::Outcome;
-use modules::{Context, Wiring};
+use clock::SystemClock;
+use modules::Modules;
+use modules::foundation::{self, Env};
 
 /// What to write and how to exit.
 struct Done {
     out: String,
     err: String,
     code: u8,
-}
-
-/// `--json` among the raw arguments, before any `--` (RG-ST03-2.1).
-fn json_mode(args: &[OsString]) -> bool {
-    args.iter()
-        .skip(1)
-        .take_while(|a| *a != "--")
-        .any(|a| a == "--json")
 }
 
 fn finish(r: Outcome, json: bool) -> Done {
@@ -56,69 +56,153 @@ fn settle(action: &ActionDescriptor, r: Outcome) -> Outcome {
     }
 }
 
-fn wiring_of<'a>(wirings: &'a [Wiring], action: &str) -> &'a Wiring {
-    wirings
-        .iter()
-        .find(|w| action.split('.').next() == Some(w.id))
-        .expect("every action belongs to a wiring")
+/// The store located before parsing: the existing handle, else opened (created) at `path`.
+struct Located {
+    path: Result<PathBuf, ActionError>,
+    handle: Option<SqliteStore>,
 }
 
-fn execute(action: &ActionDescriptor, leaf: &ArgMatches, wirings: &[Wiring]) -> Outcome {
-    let flag = leaf.get_one::<PathBuf>("store");
+/// Before parsing: the location, once, and the enabled state of an existing store only
+/// (RG-ST04-2.3; plan P-8). A location error gives the default state; the action reports it.
+fn locate(
+    store_flag: Option<&str>,
+    modules: &Modules,
+) -> Result<(Located, BTreeSet<&'static str>), ActionError> {
     let path = store::location(
-        flag.map(|p| p.as_os_str()),
+        store_flag.map(OsStr::new),
         |k| std::env::var_os(k),
         std::env::consts::OS,
-    )?;
-    let store = store::open(&path)?;
-    let wiring = wiring_of(wirings, &action.name);
-    let pt = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("system clock before 1970")
-        .as_millis();
-    let ctx = Context {
-        store: &store,
-        pt: u64::try_from(pt).expect("system clock beyond u64 ms"),
-        author: Author::CliUser,
+    );
+    let handle = match &path {
+        Ok(p) => store::open_existing(p)?,
+        Err(_) => None,
     };
-    settle(
-        action,
-        (wiring.execute)(&action.name, cli::input(leaf, action), &ctx),
-    )
+    let enabled = match &handle {
+        Some(s) => foundation::enabled(s, modules)?,
+        None => BTreeSet::new(),
+    };
+    Ok((Located { path, handle }, enabled))
+}
+
+/// A first command word naming a disabled module (RG-ST04-2.2).
+fn not_enabled(
+    first_word: Option<&str>,
+    modules: &Modules,
+    enabled: &BTreeSet<&str>,
+) -> Option<ActionError> {
+    let m = modules::get(modules, first_word?)?.id();
+    if enabled.contains(m) {
+        return None;
+    }
+    Some(ActionError::module_not_enabled(
+        "module_not_enabled",
+        format!("module {m} is not enabled; run: arbitre module enable --module {m}"),
+    ))
+}
+
+fn execute(
+    action: &ActionDescriptor,
+    leaf: &ArgMatches,
+    modules: &Modules,
+    located: Located,
+) -> Outcome {
+    let store = match located.handle {
+        Some(s) => s,
+        None => store::open(&located.path?)?,
+    };
+    let clock = SystemClock;
+    // `test.signal` stands for a background task (RG-ST04-6.3), not a user command: showing
+    // here would consume the signals it is meant to pile up (`tests/signals.rs` oldest_first).
+    #[cfg(feature = "test-actions")]
+    let show = action.name != "arbitre.test.signal";
+    #[cfg(not(feature = "test-actions"))]
+    let show = true;
+    if show {
+        signals::show_and_mark(&store, &clock, &mut std::io::stderr());
+    }
+    let author = Author::CliUser;
+    let input = cli::input(leaf, action);
+    let first = action.name.split('.').next().unwrap_or_default();
+    let r = match modules::get(modules, first) {
+        None => {
+            let env = Env {
+                store: &store,
+                clock: &clock,
+                author,
+                modules,
+            };
+            foundation::execute(&action.name, input, &env)
+        }
+        Some(m) => {
+            let ctx = Context {
+                author,
+                clock: &clock,
+                store: ModuleStore::new(&store, m.id(), author, &clock),
+                ai: None,
+            };
+            store::block_on(m.execute(&action.name, input, &ctx)).and_then(|r| r)
+        }
+    };
+    settle(action, r)
 }
 
 /// Everything from catalogue to result; the store is dropped on return, before any write.
-fn run(args: &[OsString], json: bool) -> Done {
-    let wirings = modules::all();
-    let catalog = match modules::catalog(&wirings) {
-        Ok(c) => c,
-        Err(e) => {
-            return finish(
-                Err(ActionError::tool_error("catalog_invalid", e.message)),
-                json,
-            );
-        }
+fn run(args: &[OsString], scan: PreScan) -> Done {
+    let json = scan.json;
+    let modules = modules::all();
+    // The whole build is validated, whatever is enabled (plan P-4).
+    if let Err(e) = modules::catalog(&modules, |_| true) {
+        return finish(
+            Err(ActionError::tool_error("catalog_invalid", e.message)),
+            json,
+        );
+    }
+    let (located, enabled) = match locate(scan.store, &modules) {
+        Ok(x) => x,
+        Err(e) => return unreadable(args, &modules, e, json),
     };
+    if let Some(e) = not_enabled(scan.first_word, &modules, &enabled) {
+        return finish(Err(e), json);
+    }
+    let catalog = modules::catalog(&modules, |m| enabled.contains(m))
+        .expect("a subset of a valid build is valid");
     let matches = match cli::command(&catalog).try_get_matches_from(args) {
         Ok(m) => m,
-        // Human help/version: the text itself, not a `help: …` rendering.
-        Err(e) if !json && !e.use_stderr() => {
-            return Done {
-                out: e.to_string(),
-                err: String::new(),
-                code: 0,
-            };
-        }
-        Err(e) => return finish(cli::usage_error(e), json),
+        Err(e) => return clap_exit(e, json),
     };
     let (action, leaf) = cli::selected(&matches, &catalog);
-    finish(execute(action, leaf, &wirings), json)
+    finish(execute(action, leaf, &modules, located), json)
+}
+
+/// Help, version or usage error.
+fn clap_exit(e: clap::Error, json: bool) -> Done {
+    if json || e.use_stderr() {
+        return finish(cli::usage_error(e), json);
+    }
+    // Human help/version: the text itself, not a `help: …` rendering.
+    Done {
+        out: e.to_string(),
+        err: String::new(),
+        code: 0,
+    }
+}
+
+/// An unreadable store stops everything but `--version` (CONFLICT-ST04-2).
+fn unreadable(args: &[OsString], modules: &Modules, e: ActionError, json: bool) -> Done {
+    let foundation = modules::catalog(modules, |_| false).expect("valid build");
+    match cli::command(&foundation).try_get_matches_from(args) {
+        Err(v) if v.kind() == ErrorKind::DisplayVersion => clap_exit(v, json),
+        _ => finish(Err(e), json),
+    }
 }
 
 fn main() {
     let args: Vec<OsString> = std::env::args_os().collect();
-    let json = json_mode(&args);
-    let done = std::panic::catch_unwind(|| run(&args, json)).unwrap_or_else(|_| {
+    let words: Vec<_> = args.iter().skip(1).map(|a| a.to_string_lossy()).collect();
+    let words: Vec<&str> = words.iter().map(|w| w.as_ref()).collect();
+    let scan = pre_scan(&words);
+    let json = scan.json;
+    let done = std::panic::catch_unwind(|| run(&args, scan)).unwrap_or_else(|_| {
         let crash = ActionError::tool_error("internal_error", "crash; details on standard error");
         finish(Err(crash), json)
     });
@@ -141,8 +225,6 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
-
     use arbitre_core::Value;
     use arbitre_core::{LoggedAs, Schema};
 
@@ -162,14 +244,6 @@ mod tests {
 
     fn os(a: &[&str]) -> Vec<OsString> {
         a.iter().map(OsString::from).collect()
-    }
-
-    #[test]
-    fn json_mode_stops_at_terminator_and_skips_program() {
-        assert!(json_mode(&os(&["a", "x", "--json"])));
-        assert!(!json_mode(&os(&["a", "x", "--", "--json"])));
-        assert!(!json_mode(&os(&["--json"])));
-        assert!(!json_mode(&os(&["a", "x"])));
     }
 
     #[test]
@@ -204,28 +278,16 @@ mod tests {
     }
 
     #[test]
-    fn wiring_by_first_segment() {
-        fn d() -> Vec<ActionDescriptor> {
-            vec![]
-        }
-        fn e(_: &str, v: Value, _: &Context<'_>) -> Result<Value, ActionError> {
-            Ok(v)
-        }
-        let w = |id| Wiring {
-            id,
-            descriptors: d,
-            execute: e,
-        };
-        let all = [w("a"), w("b")];
-        assert_eq!(wiring_of(&all, "b.x.y").id, "b");
-        assert_eq!(wiring_of(&all, "a.x").id, "a");
-    }
-
-    #[test]
     fn human_help_is_the_text_json_help_is_a_document() {
-        let human = run(&os(&["arbitre", "--help"]), false);
+        // An absent store, never the machine's default one.
+        let absent = std::env::temp_dir()
+            .join(format!("arbitre-help-{}", std::process::id()))
+            .join("absent.db");
+        let store = absent.to_str().expect("utf-8 temp dir");
+        let go = |a: &[&str]| run(&os(a), pre_scan(&a[1..]));
+        let human = go(&["arbitre", "--help", "--store", store]);
         assert!(human.out.starts_with("Usage:") && human.code == 0);
-        let json = run(&os(&["arbitre", "--help", "--json"]), true);
+        let json = go(&["arbitre", "--help", "--json", "--store", store]);
         assert!(json.out.contains("\"help\"") && json.code == 0);
     }
 }

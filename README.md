@@ -48,6 +48,28 @@ cargo test --workspace
 scripts/ci.sh   # the full verification, same as CI
 ```
 
+## Modules
+
+A module is enabled per device. **Nothing is enabled on a fresh device**: `arbitre --help` shows only `module`, and calling a module that is not enabled exits 4 with the command that enables it. No module ships yet; planning comes first.
+
+```sh
+arbitre module enable --module <id>    # changed: true, then false if run again
+arbitre module disable --module <id>   # hides the module; its data is kept
+arbitre module list                    # every module of the build and its state
+```
+
+`--module` accepts only the ids of the build's modules; the foundation (`arbitre`) is always on and cannot be disabled. `enable` and `disable` appear only in a build that has a module to toggle. Enabling a module re-checks its existing data and lists the problems in its output (`problems`); it still succeeds. The enabled state is stored in the store, one record per device, so enabling a module on your laptop does not enable it on your phone.
+
+In CI, use a throwaway store and enable only what the job needs (here, decision diff):
+
+```sh
+store="$(mktemp -d)/arbitre.db"
+arbitre module enable --module diff --store "$store"
+arbitre diff … --store "$store"
+```
+
+`--store` may come before or after the command words. `ARBITRE_STORE` works too (store location: end of "Exit codes"). Adding a module: see [CONTRIBUTING.md](CONTRIBUTING.md#adding-a-module).
+
 ## Exit codes
 
 Every command ends with one of five exit codes. The table never changes: altering it is a foundation amendment.
@@ -66,6 +88,8 @@ With `--json`, standard output carries exactly one document, whatever the outcom
 - failure: `{"error": {"category": "<JSON category>", "code": <exit code>, "id": "<error id>", "message": "<text>"}, "format": 1, "ok": false}`, plus a top-level `"data"` key only when the failure carries structured details.
 
 Keys are sorted and no whitespace is written. Messages are not stable. These error ids never disappear: `storage_full`, `storage_corrupted`, `storage_busy`, `storage_incompatible_version`, `storage_unavailable`, `write_rejected`, `no_default_store`, `catalog_invalid`, `output_mismatch`, `internal_error`, `output_failed`. Other ids (usage ids in particular) may change.
+
+An existing store that cannot be read makes every command exit 3 (`storage_corrupted` or another store id), help and usage errors included: without its state, `arbitre` cannot tell a malformed command from a module that is not enabled. Only `--version` still exits 0. The file is never written.
 
 A failed command changes nothing, with one exception: if a mutating command commits and then cannot write its result (`output_failed`, exit 3), the change has been applied.
 

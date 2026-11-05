@@ -8,22 +8,28 @@
 #[macro_use]
 extern crate alloc;
 
+mod ai;
 mod catalog;
 mod clock;
 mod error;
 mod hlc;
 mod merge;
+mod module;
+mod signal;
 #[cfg(feature = "sim")]
 mod sim_store;
 mod store;
 mod value;
 mod write;
 
+pub use ai::*;
 pub use catalog::*;
 pub use clock::*;
 pub use error::*;
 pub use hlc::*;
 pub use merge::*;
+pub use module::*;
+pub use signal::*;
 #[cfg(feature = "sim")]
 pub use sim_store::*;
 pub use store::*;

@@ -33,11 +33,33 @@ pub enum LoggedAs {
     Move,
 }
 
+impl LoggedAs {
+    /// Public name: `none`, `delete`, `move`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LoggedAs::None => "none",
+            LoggedAs::Delete => "delete",
+            LoggedAs::Move => "move",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Network {
     Calendar,
     Relay,
     Ai,
+}
+
+impl Network {
+    /// Public name: `calendar`, `relay`, `ai`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Network::Calendar => "calendar",
+            Network::Relay => "relay",
+            Network::Ai => "ai",
+        }
+    }
 }
 
 /// The schema subset of RG-ST03-4.3 (frozen after ST-04). String lengths count characters.
@@ -187,14 +209,39 @@ fn check_descriptor(a: &ActionDescriptor, module: &str) -> Result<(), String> {
 }
 
 impl Catalog {
-    /// Builds from `(module id, descriptors)` pairs; refuses every case of RG-ST03-4.6.
-    /// A path may be both an action and a group (Q-B (a)). Module id `arbitre` = foundation.
-    pub fn build(modules: &[(&str, Vec<ActionDescriptor>)]) -> Result<Catalog, CatalogError> {
+    /// Builds from the foundation's descriptors (module `arbitre`) and `(module id,
+    /// descriptors)` pairs; refuses every case of RG-ST03-4.6 and RG-ST04-3.4.
+    /// A path may be both an action and a group (Q-B (a)).
+    pub fn build(
+        foundation: &[ActionDescriptor],
+        modules: &[(&str, Vec<ActionDescriptor>)],
+    ) -> Result<Catalog, CatalogError> {
         let mut names: BTreeMap<&str, &str> = BTreeMap::new();
         let mut paths: BTreeMap<Vec<&str>, &str> = BTreeMap::new();
         let mut ids = BTreeSet::new();
         let mut actions = Vec::new();
-        for (module, list) in modules {
+        let all = core::iter::once(("arbitre", foundation))
+            .chain(modules.iter().map(|(m, list)| (*m, list.as_slice())));
+        // Foundation first command words, each with one action using it (RG-ST04-3.4, F-8).
+        let reserved: BTreeMap<&str, &str> = foundation
+            .iter()
+            .filter_map(|a| Some((*command_path(&a.name).first()?, a.name.as_str())))
+            .collect();
+        for (module, _) in modules {
+            let why = if *module == "arbitre" {
+                "owned by the foundation".into()
+            } else if !dashed(module, '-', true) {
+                "ill-formed".into()
+            } else if let Some(a) = reserved.get(module) {
+                format!("reserved by foundation action {a:?}")
+            } else {
+                continue;
+            };
+            return Err(CatalogError {
+                message: format!("module id {module:?}: {why}"),
+            });
+        }
+        for (module, list) in all {
             if !ids.insert(module) {
                 return Err(CatalogError {
                     message: format!("module id {module:?} given twice"),

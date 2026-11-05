@@ -1,6 +1,7 @@
 //! Stamps, hybrid logical clock, leads (ST-01 design, core types, A-11; T-3).
 
 use alloc::collections::BTreeMap;
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::num::NonZeroU64;
 
@@ -17,6 +18,11 @@ impl DeviceId {
     /// Builds the identifier from an integer; integer order is preserved.
     pub fn from_u128(n: u128) -> Self {
         Self(n.to_be_bytes())
+    }
+
+    /// 32 lowercase hex digits, byte order (record ids, P-6, P-7).
+    pub fn hex(&self) -> String {
+        self.0.iter().map(|b| format!("{b:02x}")).collect()
     }
 }
 

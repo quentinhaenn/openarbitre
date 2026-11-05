@@ -1,15 +1,20 @@
-//! Shared by the ST-03 acceptance tests: spawn the binary in a clean environment, read stores.
+//! Shared by the acceptance tests: spawn the binary in a clean environment, read stores.
+//! ST-04 tooling (frozen after ST-04; extension point: `surfaces/` only): `network`,
+//! `surfaces`, `conformance`.
 #![allow(dead_code)]
 
+pub mod conformance;
+pub mod network;
+pub mod surfaces;
+
+use std::ffi::OsString;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::{Context, Poll, Waker};
 
-use arbitre_core::{
-    Author, Change, DeviceId, Field, FieldValue, LocalChange, Position, RecordId, Store, Write,
-};
+use arbitre_core::{Author, Change, DeviceId, LocalChange, Position, RecordId, Store, Write};
 use arbitre_sqlite::{Options, SqliteStore};
 
 /// Fresh empty directory under the system temp dir.
@@ -41,13 +46,18 @@ pub fn cmd(home: &Path, args: &[&str]) -> Command {
     c
 }
 
+/// `args --store <store>` with `vars`; `HOME` is the store's directory.
+pub fn on(store: &Path, vars: &[(OsString, OsString)], args: &[&str]) -> Command {
+    let s = store.display().to_string();
+    let mut v = args.to_vec();
+    v.extend(["--store", s.as_str()]);
+    let mut c = cmd(store.parent().expect("store in a directory"), &v);
+    c.envs(vars.iter().cloned());
+    c
+}
+
 pub fn run(c: &mut Command) -> Run {
-    let o = c.output().expect("spawn arbitre");
-    Run {
-        code: o.status.code().expect("exit code, not a signal"),
-        stdout: String::from_utf8(o.stdout).expect("UTF-8 stdout"),
-        stderr: String::from_utf8_lossy(&o.stderr).into_owned(),
-    }
+    conformance::run_timed(c).expect("no hang")
 }
 
 pub fn arbitre(home: &Path, args: &[&str]) -> Run {
@@ -122,10 +132,7 @@ pub fn populate(path: &Path) {
             category: "item".into(),
             id: id.into(),
         },
-        change: Change::Field {
-            name: Field("v".into()),
-            value: FieldValue(id.as_bytes().to_vec()),
-        },
+        change: Change::field("v", id.as_bytes()),
         author: Author::System,
     };
     ready(s.apply_local(1_000, &[lc("a"), lc("b")])).expect("seed");

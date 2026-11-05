@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use arbitre_core::Value;
 use arbitre_core::{
-    ActionDescriptor, Catalog, CatalogError, LoggedAs, Property, Schema, command_path,
+    ActionDescriptor, Catalog, CatalogError, LoggedAs, Network, Property, Schema, command_path,
     conforms_input, conforms_output, encode, mcp_name, parse_text,
 };
 
@@ -67,8 +67,12 @@ fn with_output(name: &str, props: Vec<Property>) -> ActionDescriptor {
     }
 }
 
+/// ST-03 cases, written with the foundation as module `arbitre`, split for ST-04's signature.
 fn build(modules: &[(&str, Vec<ActionDescriptor>)]) -> Result<Catalog, CatalogError> {
-    Catalog::build(modules)
+    let (foundation, rest): (Vec<_>, Vec<_>) =
+        modules.iter().cloned().partition(|(m, _)| *m == "arbitre");
+    let foundation: Vec<_> = foundation.into_iter().flat_map(|(_, l)| l).collect();
+    Catalog::build(&foundation, &rest)
 }
 
 #[track_caller]
@@ -723,4 +727,13 @@ fn duplicate_module_id_is_refused() {
         &[("m", vec![action("m.a")]), ("m", vec![action("m.b")])],
         &["\"m\"", "twice"],
     );
+}
+
+#[test]
+fn logged_as_and_network_public_names() {
+    // The names `module list` gives (07_review R-12).
+    let l = [LoggedAs::None, LoggedAs::Delete, LoggedAs::Move].map(LoggedAs::as_str);
+    assert_eq!(l, ["none", "delete", "move"]);
+    let n = [Network::Calendar, Network::Relay, Network::Ai].map(Network::as_str);
+    assert_eq!(n, ["calendar", "relay", "ai"]);
 }

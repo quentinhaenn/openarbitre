@@ -1,48 +1,46 @@
-//! Wired modules: one `mod` line and one list line per module (ST-03 plan P-4, P-5).
-//! Provisional execution seam; ST-04 replaces it with `Module` and `Context` in core.
+//! Toggleable modules: one `mod` line and one list line per module (ST-04 plan P-9).
+//! The foundation (`arbitre`) is not listed here: `wiring/arbitre.rs`.
 
-use arbitre_core::Value;
-use arbitre_core::{ActionDescriptor, ActionError, Author, Catalog, CatalogError};
+use arbitre_core::{Catalog, CatalogError, Module};
 use arbitre_sqlite::SqliteStore;
 
+#[path = "wiring/arbitre.rs"]
+pub mod foundation;
+
 #[cfg(feature = "test-actions")]
-#[path = "wiring/test.rs"]
-mod test;
+#[path = "wiring/fake.rs"]
+mod fake;
 
-/// What an action runs with (provisional until ST-04).
-#[cfg_attr(not(feature = "test-actions"), expect(dead_code))]
-pub struct Context<'a> {
-    pub store: &'a SqliteStore,
-    /// Physical time, ms since the Unix epoch.
-    pub pt: u64,
-    pub author: Author,
-}
+pub type Modules = Vec<Box<dyn Module<SqliteStore>>>;
 
-/// One module: its id, its descriptors, its execution entry (conforming input in).
-pub struct Wiring {
-    pub id: &'static str,
-    pub descriptors: fn() -> Vec<ActionDescriptor>,
-    pub execute: fn(&str, Value, &Context<'_>) -> Result<Value, ActionError>,
-}
-
-/// Shipped modules (none in ST-03).
-fn shipped() -> Vec<Wiring> {
-    Vec::new()
-}
-
-/// Shipped modules, plus the test module with `test-actions`.
-pub fn all() -> Vec<Wiring> {
+/// Toggleable modules of this build (none shipped before ST-05).
+pub fn all() -> Modules {
     #[allow(unused_mut)]
-    let mut all = shipped();
+    let mut all: Modules = Vec::new();
     #[cfg(feature = "test-actions")]
-    all.extend(test::wirings());
+    all.extend(fake::modules());
     all
 }
 
-/// Builds the catalogue from `(id, descriptors())` of each wiring (RG-ST03-4.6).
-pub fn catalog(wirings: &[Wiring]) -> Result<Catalog, CatalogError> {
-    let modules: Vec<_> = wirings.iter().map(|w| (w.id, (w.descriptors)())).collect();
-    Catalog::build(&modules)
+/// Ids of `modules`, in list order.
+pub fn ids(modules: &Modules) -> Vec<&'static str> {
+    modules.iter().map(|m| m.id()).collect()
+}
+
+/// The toggleable module with id `id`.
+pub fn get<'a>(modules: &'a Modules, id: &str) -> Option<&'a dyn Module<SqliteStore>> {
+    modules.iter().find(|m| m.id() == id).map(|m| m.as_ref())
+}
+
+/// Catalogue of the foundation and the `modules` kept by `enabled` (RG-ST03-4.6,
+/// RG-ST04-2.1, 3.4); the `module` enum always names the whole build.
+pub fn catalog(modules: &Modules, enabled: impl Fn(&str) -> bool) -> Result<Catalog, CatalogError> {
+    let listed: Vec<_> = modules
+        .iter()
+        .filter(|m| enabled(m.id()))
+        .map(|m| (m.id(), m.actions()))
+        .collect();
+    Catalog::build(&foundation::descriptors(&ids(modules)), &listed)
 }
 
 #[cfg(test)]
@@ -51,14 +49,28 @@ mod tests {
 
     #[test]
     fn shipped_catalogue_builds() {
-        // E-ST03-7 "without test-actions" (DA F-7).
-        catalog(&shipped()).expect("shipped catalogue valid");
+        // E-ST03-7 "without test-actions" (DA F-7 of ST-03 and of ST-04).
+        let c = catalog(&Vec::new(), |_| true).expect("shipped catalogue valid");
+        let names: Vec<_> = c.actions().iter().map(|a| a.name.as_str()).collect();
+        assert!(names.contains(&"arbitre.module.list"));
+        assert!(!names.contains(&"arbitre.module.enable"));
+    }
+
+    #[test]
+    fn get_by_id() {
+        let all = all();
+        assert!(get(&all, "arbitre").is_none());
+        if cfg!(feature = "test-actions") {
+            assert_eq!(get(&all, "fake-b").expect("fake-b").id(), "fake-b");
+            assert!(get(&all, "fake-c").is_none());
+        }
     }
 
     #[test]
     fn full_catalogue_builds() {
-        let c = catalog(&all()).expect("catalogue valid");
+        let c = catalog(&all(), |_| true).expect("catalogue valid");
         let test_actions = cfg!(feature = "test-actions");
-        assert!(!test_actions || c.actions().iter().any(|a| a.name == "test.echo"));
+        let has = |n: &str| c.actions().iter().any(|a| a.name == n);
+        assert!(!test_actions || (has("arbitre.test.echo") && has("fake-a.put")));
     }
 }

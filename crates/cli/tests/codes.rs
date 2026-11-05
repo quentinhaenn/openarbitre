@@ -33,7 +33,8 @@ fn one_code_per_category_in_both_modes() {
         (&["test", "refuse"], 1, Some("refusal")),
         (&["test", "echo", "--bogus"], 2, Some("usage")),
         (&["test", "fail"], 3, Some("tool_error")),
-        (&["test", "not-enabled"], 4, Some("module_not_enabled")),
+        // ST-04: a real disabled module (E-ST04-10).
+        (&["fake-a", "list"], 4, Some("module_not_enabled")),
     ];
     for (args, code, category) in cases {
         let home = tmp("codes-table");

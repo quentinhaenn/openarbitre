@@ -40,6 +40,16 @@ pub enum Change {
     Delete,
 }
 
+impl Change {
+    /// `Field { name, value }` from a name and raw bytes.
+    pub fn field(name: &str, value: &[u8]) -> Change {
+        Change::Field {
+            name: Field(name.into()),
+            value: FieldValue(value.to_vec()),
+        }
+    }
+}
+
 /// Which part of its record a write targets. Contractual order: delete before fields (A-1, D-4).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TargetKind {
