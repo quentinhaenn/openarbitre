@@ -200,7 +200,25 @@ impl Catalog {
         let mut actions = Vec::new();
         let all = core::iter::once(("arbitre", foundation))
             .chain(modules.iter().map(|(m, list)| (*m, list.as_slice())));
-        // T-2: reserved (`arbitre`, foundation first words) and ill-formed module ids.
+        // Foundation first command words, each with one action using it (RG-ST04-3.4, F-8).
+        let reserved: BTreeMap<&str, &str> = foundation
+            .iter()
+            .filter_map(|a| Some((*command_path(&a.name).first()?, a.name.as_str())))
+            .collect();
+        for (module, _) in modules {
+            let why = if *module == "arbitre" {
+                "owned by the foundation".into()
+            } else if !dashed(module, '-', true) {
+                "ill-formed".into()
+            } else if let Some(a) = reserved.get(module) {
+                format!("reserved by foundation action {a:?}")
+            } else {
+                continue;
+            };
+            return Err(CatalogError {
+                message: format!("module id {module:?}: {why}"),
+            });
+        }
         for (module, list) in all {
             if !ids.insert(module) {
                 return Err(CatalogError {

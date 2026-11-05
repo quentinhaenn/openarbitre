@@ -14,9 +14,9 @@ use crate::clock::Clock;
 use crate::error::ActionError;
 use crate::hlc::DeviceId;
 use crate::merge::RecordState;
-use crate::store::{ApplyError, Store, StoreError};
+use crate::store::{ApplyError, LocalChange, Store, StoreError};
 use crate::value::{Output, Value};
-use crate::write::{Author, Change, RecordId, Write};
+use crate::write::{Author, Change, Field, FieldValue, RecordId, Write};
 
 /// Future returned by `Module` and `Ai` methods (dyn-compatible, Q3 (a)).
 pub type LocalBoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
@@ -88,28 +88,37 @@ impl<'a, S: Store> ModuleStore<'a, S> {
         }
     }
 
+    fn record(&self, category: &str, id: &str) -> RecordId {
+        RecordId {
+            module: self.module.into(),
+            category: category.into(),
+            id: id.into(),
+        }
+    }
+
     /// Namespace of this view.
     pub fn module(&self) -> &'static str {
         self.module
     }
 
     pub async fn device(&self) -> Result<DeviceId, StoreError> {
-        todo!("T-2 {:p}", self.store)
+        self.store.device().await
     }
 
     /// Projected state of `(module, category, id)`.
     pub async fn state(&self, category: &str, id: &str) -> Result<Option<RecordState>, StoreError> {
-        todo!("T-2 {category} {id} {:?}", (self.module, self.author))
+        self.store.state(&self.record(category, id)).await
     }
 
     /// Records of a category of this namespace, sorted by id: `(id, state)`.
     pub async fn records(&self, category: &str) -> Result<Vec<(String, RecordState)>, StoreError> {
-        todo!("T-2 {category}")
+        let records = self.store.records(self.module, category).await?;
+        Ok(records.into_iter().map(|(r, st)| (r.id, st)).collect())
     }
 
     /// Writes of `(module, category, id)`, `Log::writes` order.
     pub async fn writes_of(&self, category: &str, id: &str) -> Result<Vec<Write>, StoreError> {
-        todo!("T-2 {category} {id}")
+        self.store.writes_of(&self.record(category, id)).await
     }
 
     /// One atomic local apply of `(category, id, change)`, stamped with the view's clock
@@ -118,7 +127,15 @@ impl<'a, S: Store> ModuleStore<'a, S> {
         &self,
         changes: &[(String, String, Change)],
     ) -> Result<Vec<Write>, ApplyError> {
-        todo!("T-2 {changes:?} {}", self.clock.now())
+        let local: Vec<LocalChange> = changes
+            .iter()
+            .map(|(category, id, change)| LocalChange {
+                record: self.record(category, id),
+                change: change.clone(),
+                author: self.author,
+            })
+            .collect();
+        self.store.apply_local(self.clock.now(), &local).await
     }
 }
 
@@ -133,21 +150,44 @@ pub struct PreScan<'a> {
 
 /// Reads `args` (program name excluded) without the catalogue.
 pub fn pre_scan<'a>(args: &[&'a str]) -> PreScan<'a> {
-    todo!("T-2 {args:?}")
+    let mut scan = PreScan::default();
+    let mut rest = args.iter().copied().take_while(|a| *a != "--");
+    while let Some(a) = rest.next() {
+        if a == "--store" {
+            scan.store = rest.next().or(scan.store);
+        } else if let Some(v) = a.strip_prefix("--store=") {
+            scan.store = Some(v);
+        } else if !a.starts_with('-') && scan.first_word.is_none() {
+            scan.first_word = Some(a);
+        }
+    }
+    scan
 }
 
 /// Record holding the enabled state of `device`: `arbitre/module-state/<device hex>` (P-6).
 pub fn state_record(device: DeviceId) -> RecordId {
-    todo!("T-2 {device:?}")
+    RecordId {
+        module: "arbitre".into(),
+        category: "module-state".into(),
+        id: device.0.iter().map(|b| format!("{b:02x}")).collect(),
+    }
 }
 
 /// Enabled modules among `build`: a field `b"1"` enables, anything else gives the default
 /// (off); fields naming ids outside `build` are ignored (RG-ST04-1.6, DA F-15).
 pub fn enabled_from(state: Option<&RecordState>, build: &[&'static str]) -> BTreeSet<&'static str> {
-    todo!("T-2 {state:?} {build:?}")
+    let on = |m: &str| {
+        state
+            .and_then(|s| s.fields.get(&Field(m.into())))
+            .is_some_and(|w| w.change == state_change(m, true))
+    };
+    build.iter().copied().filter(|m| on(m)).collect()
 }
 
 /// Change writing `module` on (`b"1"`) or off (`b"0"`) in the state record.
 pub fn state_change(module: &str, on: bool) -> Change {
-    todo!("T-2 {module} {on}")
+    Change::Field {
+        name: Field(module.into()),
+        value: FieldValue(if on { b"1" } else { b"0" }.to_vec()),
+    }
 }

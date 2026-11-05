@@ -24,6 +24,12 @@ pub enum AiError {
 impl From<AiError> for ActionError {
     /// `ToolError` with ids `ai_not_configured`, `ai_unreachable`, `ai_key_refused`, `ai_timeout`.
     fn from(e: AiError) -> Self {
-        todo!("T-2 {e:?}")
+        let id = match e {
+            AiError::NotConfigured => "ai_not_configured",
+            AiError::Unreachable => "ai_unreachable",
+            AiError::KeyRefused => "ai_key_refused",
+            AiError::Timeout => "ai_timeout",
+        };
+        ActionError::tool_error(id, id.replace('_', " "))
     }
 }
