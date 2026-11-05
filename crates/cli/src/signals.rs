@@ -3,13 +3,26 @@
 
 use std::io::Write;
 
-use arbitre_core::{ActionError, Clock};
+use arbitre_core::{
+    ActionError, Author, Clock, LocalChange, Store, line, read_change, signal_changes,
+    signal_record, unread,
+};
 use arbitre_sqlite::SqliteStore;
 
+use crate::store::{block_on, map_apply, map_store};
+
+fn system(record: &arbitre_core::RecordId, change: arbitre_core::Change) -> LocalChange {
+    LocalChange {
+        record: record.clone(),
+        change,
+        author: Author::System,
+    }
+}
+
 /// Writes one signal of this device, dated `now` (ST-11, ST-19 call it).
-#[expect(
-    dead_code,
-    reason = "T-6: called by `test.signal`; then cfg_attr on `test-actions`"
+#[cfg_attr(
+    not(feature = "test-actions"),
+    expect(dead_code, reason = "called by `test.signal`, then by ST-11 and ST-19")
 )]
 pub fn deposit(
     store: &SqliteStore,
@@ -17,12 +30,39 @@ pub fn deposit(
     source: &str,
     message: &str,
 ) -> Result<(), ActionError> {
-    todo!("T-6 {:p} {now} {source} {message}", store)
+    let record = signal_record(block_on(store.device())?.map_err(map_store)?, now, source);
+    let changes: Vec<_> = signal_changes(now, source, message)
+        .into_iter()
+        .map(|c| system(&record, c))
+        .collect();
+    block_on(store.apply_local(now, &changes))?.map_err(map_apply)?;
+    Ok(())
 }
 
 /// Writes the unread signals of this device to `err`, oldest first, then marks them read
 /// (`Author::System`). A failure writes one line to `err` and is otherwise ignored.
-#[expect(dead_code, reason = "called from main.rs by T-6")]
 pub fn show_and_mark(store: &SqliteStore, clock: &dyn Clock, err: &mut dyn Write) {
-    todo!("T-6 {:p} {} {:p}", store, clock.now(), err)
+    if let Err(e) = try_show_and_mark(store, clock, err) {
+        let _ = writeln!(err, "error: signals not shown: {}", e.message());
+    }
+}
+
+fn try_show_and_mark(
+    store: &SqliteStore,
+    clock: &dyn Clock,
+    err: &mut dyn Write,
+) -> Result<(), ActionError> {
+    let device = block_on(store.device())?.map_err(map_store)?;
+    let records = block_on(store.records("arbitre", "signal"))?.map_err(map_store)?;
+    let tz = clock.timezone();
+    let signals = unread(&records, device);
+    for s in &signals {
+        let _ = writeln!(err, "{}", line(s.at, &tz, &s.message));
+    }
+    let marks: Vec<_> = signals
+        .iter()
+        .map(|s| system(&s.record, read_change()))
+        .collect();
+    block_on(store.apply_local(clock.now(), &marks))?.map_err(map_apply)?;
+    Ok(())
 }
