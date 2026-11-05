@@ -226,5 +226,18 @@ fn read(env: &Env<'_>) -> Result<Value, ActionError> {
 
 /// Deposits through `signals::deposit`, from this process (RG-ST04-6.3 simulator).
 fn signal(input: &Value, env: &Env<'_>) -> Result<Value, ActionError> {
-    todo!("T-6 {input:?} {:p}", env.store)
+    let text = |k: &str| match input {
+        Value::Object(o) => match o.get(k) {
+            Some(Value::Str(s)) => s.clone(),
+            _ => unreachable!("{k} is required"),
+        },
+        _ => unreachable!("input conforms to an object schema"),
+    };
+    crate::signals::deposit(
+        env.store,
+        env.clock.now(),
+        &text("source"),
+        &text("message"),
+    )?;
+    Ok(Value::Object([].into()))
 }

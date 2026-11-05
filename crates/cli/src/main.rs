@@ -126,8 +126,12 @@ fn execute(
         Some(s) => s,
         None => store::open(&located.path?)?,
     };
-    // Signals are shown here, before the action (T-6).
     let clock = SystemClock;
+    // `test.signal` stands for a background task (RG-ST04-6.3), not a user command: showing
+    // here would consume the signals it is meant to pile up (`tests/signals.rs` oldest_first).
+    if action.name != "arbitre.test.signal" {
+        signals::show_and_mark(&store, &clock, &mut std::io::stderr());
+    }
     let author = Author::CliUser;
     let input = cli::input(leaf, action);
     let r = match module_of(modules, &action.name) {
@@ -304,9 +308,17 @@ mod tests {
 
     #[test]
     fn human_help_is_the_text_json_help_is_a_document() {
-        let human = run(&os(&["arbitre", "--help"]), false);
+        // An absent store, never the machine's default one.
+        let absent = std::env::temp_dir()
+            .join(format!("arbitre-help-{}", std::process::id()))
+            .join("absent.db");
+        let store = absent.to_str().expect("utf-8 temp dir");
+        let human = run(&os(&["arbitre", "--help", "--store", store]), false);
         assert!(human.out.starts_with("Usage:") && human.code == 0);
-        let json = run(&os(&["arbitre", "--help", "--json"]), true);
+        let json = run(
+            &os(&["arbitre", "--help", "--json", "--store", store]),
+            true,
+        );
         assert!(json.out.contains("\"help\"") && json.code == 0);
     }
 }

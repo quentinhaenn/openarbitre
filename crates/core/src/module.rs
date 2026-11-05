@@ -169,7 +169,7 @@ pub fn state_record(device: DeviceId) -> RecordId {
     RecordId {
         module: "arbitre".into(),
         category: "module-state".into(),
-        id: device.0.iter().map(|b| format!("{b:02x}")).collect(),
+        id: device.hex(),
     }
 }
 
