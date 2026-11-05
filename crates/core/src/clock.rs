@@ -54,7 +54,7 @@ impl SimClock {
 
     /// Sets the time zone `timezone()` returns (default UTC).
     pub fn set_timezone(&self, tz: jiff::tz::TimeZone) {
-        todo!("T-3 {tz:?} {:?}", self.tz)
+        self.tz.replace(Some(tz));
     }
 
     /// Freezes the current time.
@@ -70,6 +70,6 @@ impl Clock for SimClock {
     }
 
     fn timezone(&self) -> jiff::tz::TimeZone {
-        todo!("T-3")
+        self.tz.borrow().clone().unwrap_or(jiff::tz::TimeZone::UTC)
     }
 }

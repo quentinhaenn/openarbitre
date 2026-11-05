@@ -8,7 +8,10 @@ pub struct SystemClock;
 
 impl Clock for SystemClock {
     fn now(&self) -> u64 {
-        // T-3: `ARBITRE_TEST_NOW` under `test-actions`.
+        #[cfg(feature = "test-actions")]
+        if let Ok(t) = std::env::var("ARBITRE_TEST_NOW") {
+            return t.parse().expect("ARBITRE_TEST_NOW: integer ms");
+        }
         let ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("system clock before 1970")
@@ -17,6 +20,17 @@ impl Clock for SystemClock {
     }
 
     fn timezone(&self) -> jiff::tz::TimeZone {
-        todo!("T-3")
+        jiff::tz::TimeZone::try_system().unwrap_or(jiff::tz::TimeZone::UTC)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn now_is_wall_time_without_override() {
+        // Assumes `ARBITRE_TEST_NOW` unset in the test environment; 1_767_225_600_000 = 2026-01-01.
+        assert!(SystemClock.now() > 1_767_225_600_000);
     }
 }
