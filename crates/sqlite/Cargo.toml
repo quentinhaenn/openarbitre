@@ -1,0 +1,24 @@
+[package]
+name = "arbitre-sqlite"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+arbitre-core = { version = "0.1.0", path = "../core" }
+# Local, not shared: docs/decisions/ST-01-dependencies.md.
+rusqlite = { version = "0.41.1", features = ["bundled"] }
+getrandom = { workspace = true }
+
+[dev-dependencies]
+arbitre-core = { version = "0.1.0", path = "../core", features = ["sim"] }
+proptest = { workspace = true }
+
+[features]
+# Lets tests include core's `support/mod.rs` with its `sim` items (plan P-9).
+sim = ["arbitre-core/sim"]
+
+[[test]]
+name = "contract"
+required-features = ["sim"]
