@@ -61,7 +61,8 @@ CREATE TABLE device (
     id INTEGER PRIMARY KEY CHECK (id = 0),
     device BLOB NOT NULL CHECK (length(device) = 16),
     clock_l INTEGER NOT NULL CHECK (clock_l >= 0),
-    clock_c INTEGER NOT NULL CHECK (clock_c BETWEEN 0 AND 4294967295)
+    clock_c INTEGER NOT NULL CHECK (clock_c BETWEEN 0 AND 4294967295),
+    checked INTEGER NOT NULL DEFAULT 0 CHECK (checked >= 0)
 ) STRICT;
 CREATE TABLE writes (
     pos INTEGER PRIMARY KEY,
@@ -104,7 +105,7 @@ impl SqliteStore {
         // switches it to WAL (plan R-9): retry the whole sequence until `wait` elapses.
         let deadline = Instant::now() + options.wait;
         loop {
-            match Self::open_once(path, options) {
+            match Self::open_once(path, options, deadline) {
                 Err(StoreError::Unavailable(Cause::Busy)) if Instant::now() < deadline => {
                     std::thread::sleep(Duration::from_millis(2));
                 }
@@ -113,14 +114,16 @@ impl SqliteStore {
         }
     }
 
-    fn open_once(path: &Path, options: &Options) -> Result<Self, StoreError> {
+    fn open_once(path: &Path, options: &Options, deadline: Instant) -> Result<Self, StoreError> {
         let flags = OpenFlags::default();
         let mut conn = match &options.vfs {
             Some(vfs) => Connection::open_with_flags_and_vfs(path, flags, vfs.as_str()),
             None => Connection::open_with_flags(path, flags),
         }
         .map_err(map)?;
-        conn.busy_timeout(options.wait).map_err(map)?;
+        // Each attempt gets only the time left, so `open` stays within `wait`.
+        conn.busy_timeout(deadline.saturating_duration_since(Instant::now()))
+            .map_err(map)?;
         for (name, value) in [
             ("synchronous", "FULL"),
             ("fullfsync", "ON"),
@@ -128,19 +131,32 @@ impl SqliteStore {
         ] {
             conn.pragma_update(None, name, value).map_err(map)?;
         }
-        let device = match inspect(&mut conn)? {
-            Some(d) => d,
+        let (device, top) = match inspect(&mut conn)? {
+            Some(x) => x,
             None => match create(&mut conn)? {
-                Some(d) => d,
+                Some(d) => (d, 0),
                 None => inspect(&mut conn)?.ok_or(StoreError::Corrupted(Damage::Layout))?,
             },
         };
         wal(&conn)?;
+        // Best effort: a full or busy store still opens and reads; the next open re-checks.
+        match advance(&conn, top) {
+            Err(StoreError::StorageFull | StoreError::Unavailable(Cause::Busy)) => {}
+            other => other?,
+        }
         Ok(Self {
             conn: RefCell::new(conn),
             device,
             poisoned: RefCell::new(None),
         })
+    }
+
+    /// Full on-demand check: every stored write, orphan `seen` rows, local identity pairs and
+    /// page-level damage (what `open` checks only past the marker). Poisons the handle on damage.
+    pub fn check_all(&self) -> Result<(), StoreError> {
+        let device = self.device;
+        let top = self.read(|tx| check(tx, device, 0))?;
+        advance(&self.conn.borrow(), top)
     }
 
     /// Test hook: settings in effect on this connection.
@@ -161,8 +177,16 @@ impl SqliteStore {
     }
 }
 
-/// Open sequence steps 1 and 3: `None` = empty file (to create), else the verified `D`.
-fn inspect(conn: &mut Connection) -> Result<Option<DeviceId>, StoreError> {
+/// Moves the "checked up to" marker forward (never back); writes nothing when unchanged.
+fn advance(conn: &Connection, top: i64) -> Result<(), StoreError> {
+    conn.execute("UPDATE device SET checked = ?1 WHERE checked < ?1", [top])
+        .map_err(map)?;
+    Ok(())
+}
+
+/// Open sequence steps 1 and 3: `None` = empty file (to create), else the verified `D` and the
+/// top position now checked (to be stored by `advance` once the open is accepted).
+fn inspect(conn: &mut Connection) -> Result<Option<(DeviceId, i64)>, StoreError> {
     let tx = conn.transaction().map_err(map)?;
     let app: i32 = tx
         .pragma_query_value(None, "application_id", |r| r.get(0))
@@ -194,13 +218,18 @@ fn inspect(conn: &mut Connection) -> Result<Option<DeviceId>, StoreError> {
         return Err(StoreError::Corrupted(Damage::Layout));
     }
     let row = tx
-        .query_row("SELECT device, clock_l, clock_c FROM device", [], |r| {
-            Ok((
-                r.get::<_, Vec<u8>>(0)?,
-                r.get::<_, i64>(1)?,
-                r.get::<_, i64>(2)?,
-            ))
-        })
+        .query_row(
+            "SELECT device, clock_l, clock_c, checked FROM device",
+            [],
+            |r| {
+                Ok((
+                    r.get::<_, Vec<u8>>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, i64>(3)?,
+                ))
+            },
+        )
         .optional()
         .map_err(|e| match map(e) {
             StoreError::Corrupted(Damage::StoredWrite { .. }) => {
@@ -208,7 +237,7 @@ fn inspect(conn: &mut Connection) -> Result<Option<DeviceId>, StoreError> {
             }
             other => other,
         })?;
-    let Some((device, l, c)) = row else {
+    let Some((device, l, c, checked)) = row else {
         return Err(StoreError::Corrupted(Damage::DeviceId));
     };
     let device =
@@ -232,8 +261,13 @@ fn inspect(conn: &mut Connection) -> Result<Option<DeviceId>, StoreError> {
         }
     }
     let device = DeviceId(device);
-    check_stored(&tx, device)?;
-    // Page-level damage the row checks cannot see (Q-P6), last so row damage keeps its precise variant.
+    Ok(Some((device, check(&tx, device, checked)?)))
+}
+
+/// Row checks on writes past `from`, then page-level `quick_check` (Q-P6, last so row damage keeps
+/// its precise variant). Returns the top position checked.
+fn check(tx: &Transaction, device: DeviceId, from: i64) -> Result<i64, StoreError> {
+    check_stored(tx, device, from)?;
     let report = tx
         .prepare("PRAGMA quick_check")
         .map_err(map)?
@@ -244,17 +278,18 @@ fn inspect(conn: &mut Connection) -> Result<Option<DeviceId>, StoreError> {
     if report != ["ok"] {
         return Err(StoreError::Corrupted(Damage::Engine(report.join("; "))));
     }
-    Ok(Some(device))
+    tx.query_row("SELECT coalesce(max(pos), 0) FROM writes", [], |r| r.get(0))
+        .map_err(map)
 }
 
-/// Open-time check (P-10, P-11): every stored write decodes and validates, no orphan `seen`
-/// row, no local identity stored twice (cost measured by `tests/damage.rs :: open_check_timing`).
-fn check_stored(tx: &Transaction, device: DeviceId) -> Result<(), StoreError> {
-    load(tx, "", [])?;
+/// Open-time row check (P-10, P-11) of writes past `from`: they decode and validate, no orphan
+/// `seen` row, no local identity stored twice (cost: `tests/damage.rs :: open_check_timing`).
+fn check_stored(tx: &Transaction, device: DeviceId, from: i64) -> Result<(), StoreError> {
+    load(tx, "WHERE pos > ?1", [from])?;
     let orphan: Option<i64> = tx
         .query_row(
-            "SELECT min(pos) FROM seen WHERE pos NOT IN (SELECT pos FROM writes)",
-            [],
+            "SELECT min(pos) FROM seen WHERE pos > ?1 AND pos NOT IN (SELECT pos FROM writes)",
+            [from],
             |r| r.get(0),
         )
         .map_err(map)?;
@@ -263,9 +298,11 @@ fn check_stored(tx: &Transaction, device: DeviceId) -> Result<(), StoreError> {
     }
     let pair = tx
         .query_row(
-            "SELECT module, category, id, field, l, c FROM writes WHERE a = ?1
-             GROUP BY module, category, id, field, l, c HAVING count(*) > 1 LIMIT 1",
-            [&device.0[..]],
+            "SELECT module, category, id, field, l, c FROM writes w WHERE a = ?1 AND pos > ?2
+             AND EXISTS (SELECT 1 FROM writes o WHERE o.module = w.module AND o.category = w.category
+               AND o.id = w.id AND o.field = w.field AND o.l = w.l AND o.c = w.c AND o.a = w.a
+               AND o.pos <> w.pos) LIMIT 1",
+            (&device.0[..], from),
             |r| {
                 Ok((
                     [r.get::<_, Vec<u8>>(0)?, r.get(1)?, r.get(2)?, r.get(3)?],
@@ -316,8 +353,11 @@ fn create(conn: &mut Connection) -> Result<Option<DeviceId>, StoreError> {
     let mut id = [0u8; 16];
     getrandom::fill(&mut id).map_err(|_| StoreError::Unavailable(Cause::RandomSource))?;
     tx.execute_batch(DDL).map_err(map)?;
-    tx.execute("INSERT INTO device VALUES (0, ?1, 0, 0)", [&id[..]])
-        .map_err(map)?;
+    tx.execute(
+        "INSERT INTO device (id, device, clock_l, clock_c) VALUES (0, ?1, 0, 0)",
+        [&id[..]],
+    )
+    .map_err(map)?;
     tx.pragma_update(None, "application_id", APP_ID)
         .map_err(map)?;
     tx.pragma_update(None, "user_version", VERSION)
@@ -499,7 +539,13 @@ fn insert(tx: &Transaction, w: &Write) -> Result<(), StoreError> {
         Change::Field { name, value } => (name.0.as_bytes(), Some(&value.0)),
         Change::Delete => (b"", None),
     };
-    let author = AUTHORS.iter().position(|a| *a == w.author).unwrap_or(0);
+    // Exhaustive: a new `Author` must get a code here and in `AUTHORS`.
+    let author: i64 = match w.author {
+        Author::CliUser => 0,
+        Author::UiUser => 1,
+        Author::Assistant => 2,
+        Author::System => 3,
+    };
     tx.prepare_cached(
         "INSERT INTO writes (module, category, id, field, value, l, c, a, author)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
@@ -514,7 +560,7 @@ fn insert(tx: &Transaction, w: &Write) -> Result<(), StoreError> {
         w.stamp.l as i64,
         w.stamp.c,
         &w.stamp.a.0[..],
-        author as i64,
+        author,
     ))
     .map_err(map)?;
     let pos = tx.last_insert_rowid();
@@ -574,6 +620,14 @@ fn mark(tx: &Transaction, peer: DeviceId) -> Result<Option<Watermark>, StoreErro
 }
 
 impl SqliteStore {
+    /// Fails with the stored damage once the handle is poisoned (RG-ST02-7.2).
+    fn check_poison(&self) -> Result<(), StoreError> {
+        match self.poisoned.borrow().as_ref() {
+            Some(d) => Err(StoreError::Corrupted(d.clone())),
+            None => Ok(()),
+        }
+    }
+
     /// Runs `f` in one transaction (`IMMEDIATE` for writes), commits on `Ok`, rolls back otherwise.
     /// The first `Corrupted` poisons the handle (RG-ST02-7.2).
     fn exec<T>(
@@ -581,9 +635,7 @@ impl SqliteStore {
         behavior: TransactionBehavior,
         f: impl FnOnce(&Transaction) -> Result<T, ApplyError>,
     ) -> Result<T, ApplyError> {
-        if let Some(d) = self.poisoned.borrow().as_ref() {
-            return Err(StoreError::Corrupted(d.clone()).into());
-        }
+        self.check_poison()?;
         let mut conn = self.conn.borrow_mut();
         let out = Transaction::new(&mut conn, behavior)
             .map_err(|e| ApplyError::Store(map(e)))
@@ -620,6 +672,7 @@ impl SqliteStore {
 
 impl Store for SqliteStore {
     async fn device(&self) -> Result<DeviceId, StoreError> {
+        self.check_poison()?;
         Ok(self.device)
     }
 
@@ -628,6 +681,7 @@ impl Store for SqliteStore {
         pt: u64,
         changes: &[LocalChange],
     ) -> Result<Vec<Write>, ApplyError> {
+        self.check_poison()?;
         // `stamp_local` on an empty list returns a meaningless `K'`.
         if changes.is_empty() {
             return Ok(Vec::new());

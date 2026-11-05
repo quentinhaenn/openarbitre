@@ -38,7 +38,8 @@ fn lc(id: &str, value: &str) -> LocalChange {
 }
 
 /// Store at `<dir>/store.db`: records `a` (3 writes, pos 1-3; pos 2-3 carry `seen`) and `b`
-/// (pos 4), one watermark; handle dropped, WAL checkpointed.
+/// (pos 4), one watermark; handle dropped, WAL checkpointed. No later open: all writes are
+/// past the checked marker (incremental open check).
 fn build(tag: &str) -> (PathBuf, PathBuf) {
     let dir = fresh_dir(tag);
     let path = dir.join("store.db");
@@ -52,8 +53,13 @@ fn build(tag: &str) -> (PathBuf, PathBuf) {
     (dir, path)
 }
 
+/// `D` read from outside, so that `build`'s writes stay past the checked marker.
 fn device_of(path: &Path) -> DeviceId {
-    block_on(open(path).unwrap().device()).unwrap()
+    let c = Connection::open(path).unwrap();
+    DeviceId(
+        c.query_row("SELECT device FROM device", [], |r| r.get(0))
+            .unwrap(),
+    )
 }
 
 /// Damage `name` (SQL and expected cause) for the store at `path`.
@@ -194,17 +200,7 @@ fn truncation_is_refused() {
         match open(&p) {
             Err(StoreError::Corrupted(_)) => {}
             Err(other) => panic!("len {len}: {other:?}"),
-            // Q-P6: a cut past every page the check reads may only show on a later read.
-            Ok(s) => assert!(
-                matches!(
-                    block_on(s.writes_of(&rec("c", "a"))),
-                    Err(StoreError::Corrupted(_))
-                ) || matches!(
-                    block_on(s.watermark(DeviceId::from_u128(9))),
-                    Err(StoreError::Corrupted(_))
-                ),
-                "len {len}: truncated store opened and read cleanly"
-            ),
+            Ok(_) => panic!("len {len}: truncated store opened"),
         }
         assert_eq!(
             std::fs::read(&p).unwrap(),
@@ -330,11 +326,33 @@ fn damage_after_open_is_found_by_the_operation() {
                 // Poison: the handle keeps answering the same error, also for record `b`.
                 let again = block_on(store.writes_of(&rec("c", "b"))).expect_err(&tag);
                 expect_corrupted(again, want, &format!("{tag} (poison)"));
+                let dev = block_on(store.device()).expect_err(&tag);
+                expect_corrupted(dev, want, &format!("{tag} (poison, device)"));
+                let empty = block_on(store.apply_local(1000, &[])).map_err(store_err);
+                expect_corrupted(
+                    empty.expect_err(&tag),
+                    want,
+                    &format!("{tag} (poison, empty apply_local)"),
+                );
             } else {
                 got.unwrap_or_else(|e| panic!("{tag}: {e:?}"));
             }
             drop(store);
-            expect_corrupted(open_err(&path), want, &format!("{tag} (reopen)"));
+            // Rows checked by the first open: only `check_all` still sees them. Exceptions: the
+            // pair row is a new write past the marker; CHECK violations are caught at open by
+            // `quick_check`, as engine damage.
+            let tag = format!("{tag} (reopen)");
+            if name == "local identity pair" {
+                expect_corrupted(open_err(&path), want, &tag);
+            } else if name.starts_with("seen kind") {
+                assert!(
+                    matches!(open_err(&path), StoreError::Corrupted(Damage::Engine(_))),
+                    "{tag}"
+                );
+            } else {
+                let again = open(&path).unwrap().check_all();
+                expect_corrupted(again.expect_err(&tag), want, &tag);
+            }
             let _ = std::fs::remove_dir_all(d2);
         }
     }
@@ -388,17 +406,46 @@ fn colliding_orphan_seen_rolls_back_a_received_write() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+/// Incremental open check: damage to rows checked by an earlier open is found by `check_all`
+/// (not by `open`); damage to writes added since is refused at open.
+#[test]
+fn checked_rows_are_skipped_at_open_but_not_by_check_all() {
+    let (dir, path) = build("dmg-incr");
+    open(&path).unwrap().check_all().unwrap();
+    let marker = |p: &Path| -> i64 {
+        let c = Connection::open(p).unwrap();
+        c.query_row("SELECT checked FROM device", [], |r| r.get(0))
+            .unwrap()
+    };
+    assert_eq!(marker(&path), 4);
+    raw(&path, "UPDATE writes SET field = x'ff' WHERE pos = 2;");
+    let store = open(&path).expect("checked rows are not re-read at open");
+    expect_corrupted(store.check_all().unwrap_err(), &pos(2), "check_all");
+    // A new write after the marker is checked at the next open; the marker moves only on success.
+    let (dir2, path2) = build("dmg-incr-new");
+    open(&path2).unwrap();
+    block_on(open(&path2).unwrap().apply_local(1000, &[lc("a", "4")])).unwrap();
+    raw(&path2, "UPDATE writes SET field = x'ff' WHERE pos = 5;");
+    let before = std::fs::read(&path2).unwrap();
+    expect_corrupted(open_err(&path2), &pos(5), "new write");
+    assert_eq!(std::fs::read(&path2).unwrap(), before);
+    assert_eq!(marker(&path2), 4);
+    for d in [dir, dir2] {
+        let _ = std::fs::remove_dir_all(d);
+    }
+}
+
 /// Q-P5: a fresh process's `open` returns the `Corrupted` that a read found.
 #[test]
 fn child_open_matches_the_read_that_found_the_damage() {
     for (name, sql) in [
         (
             "non-utf8 field",
-            "UPDATE writes SET field = x'ff' WHERE pos = 2;",
+            "UPDATE writes SET field = x'ff' WHERE pos = 5;",
         ),
         (
             "seen >= stamp",
-            "UPDATE seen SET l = l + 1000000 WHERE pos = 2;",
+            "UPDATE seen SET l = l + 1000000 WHERE pos = 5;",
         ),
         (
             "local identity pair",
@@ -408,6 +455,8 @@ fn child_open_matches_the_read_that_found_the_damage() {
     ] {
         let (dir, path) = build("dmg-child");
         let store = open(&path).unwrap();
+        // pos 5 is past the marker set by the open above.
+        block_on(store.apply_local(1000, &[lc("a", "4")])).unwrap();
         raw(&path, sql);
         let found = block_on(store.writes_of(&rec("c", "a"))).expect_err(name);
         assert!(
@@ -437,7 +486,8 @@ fn median_ms(mut f: impl FnMut()) -> f64 {
     v[2]
 }
 
-/// Timing probe for T-15 (asserts nothing): open check at 10,000 writes, and `quick_check` (Q-P6).
+/// Timing probe for T-15 (asserts nothing), 10,000 writes: incremental open (second open, marker
+/// at the top), `check_all`, and `quick_check` alone (Q-P6). Open times are net of a one-write store.
 #[test]
 fn open_check_timing() {
     let dir = fresh_dir("dmg-timing");
@@ -449,21 +499,26 @@ fn open_check_timing() {
     }
     drop(store);
     block_on(open(&small).unwrap().apply_local(1000, &[lc("r", "0")])).unwrap();
-    let big_ms = median_ms(|| drop(open(&big).unwrap()));
+    let t = Instant::now();
+    drop(open(&big).unwrap()); // first open after the writes: checks all 10,000, sets the marker
+    let first_ms = t.elapsed().as_secs_f64() * 1000.0;
     let small_ms = median_ms(|| drop(open(&small).unwrap()));
-    let open_check = big_ms - small_ms;
+    let incremental = median_ms(|| drop(open(&big).unwrap())) - small_ms;
+    let handle = open(&big).unwrap();
+    let full = median_ms(|| handle.check_all().unwrap());
     let quick = median_ms(|| {
         let c = Connection::open(&big).unwrap();
         let r: String = c.query_row("PRAGMA quick_check", [], |r| r.get(0)).unwrap();
         assert_eq!(r, "ok");
     });
-    println!(
-        "open-check-ms {open_check:.1} (big {big_ms:.1}, small {small_ms:.1}); quick_check-ms {quick:.1}"
+    let line = format!(
+        "open-check-ms {incremental:.1}; first-open-ms {first_ms:.1}; check-all-ms {full:.1}; quick_check-ms {quick:.1}"
     );
+    println!("{line}");
     if let Ok(out) = std::env::var("CI_OUT") {
         std::fs::write(
             Path::new(&out).join("open-check-ms.txt"),
-            format!("{open_check:.1}\n"),
+            format!("{line}\n"),
         )
         .unwrap();
     }

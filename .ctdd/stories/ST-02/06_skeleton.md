@@ -44,3 +44,13 @@
 4. **`Log::with_clock` written in full** (a 3-line constructor, not logic); it carries `#[expect(dead_code)]`, which turns into a warning to remove once T-4's `rebuild` calls it. Same mechanism (`#![expect(dead_code)]`) on `sim_store.rs` and `crates/sqlite/src/lib.rs`.
 5. **Not created by the Skeleton**, per the plan's Convention: SQLite test files `settings.rs` (T-8, T-9), `crash.rs`, `interleave.rs`, `full.rs`, `damage.rs`, `support/{child,full_vfs}.rs` (harness-first tasks T-10 to T-13), the P-8 unit tests (T-8), layout v1 DDL and `application_id` constant (T-8).
 6. Not run: the local judge (`judge.py main HEAD` needs a commit); to run at T-15/T-16.
+
+## Child process protocol (`crates/sqlite/tests/support/child.rs`)
+
+A test target declares `#[test] fn child_entry() { child::child_main() }`. The parent re-runs its own binary with `--exact child_entry` and `ARBITRE_CHILD_ROLE`; the child talks over stdin (command lines, EOF = stop) and stdout (lines prefixed `@ `; others are libtest chatter). Env: `ARBITRE_CHILD_PATH` (store), `ARBITRE_CHILD_WAIT_MS` (busy wait, default 5000), `ARBITRE_CHILD_ID`, `ARBITRE_CHILD_SEED`, `ARBITRE_CHILD_K`.
+
+Roles and their lines (child -> parent):
+- `open`: `ready`; waits `go`; `opened <hex D>` | `open_failed <dbg>`.
+- `writer`: `opened`; per batch `start <b> <n>` then `confirmed <b> <dbg Vec<Write>>` (or `failed <b> <dbg>`); stops on any stdin line or EOF. Record ids are `<id>.<b>.<i>`.
+- `steps`: `opened`; commands `local <pt> <id=field=value|id=-;...>` -> `ok <dbg>` | `err <dbg>`; `hold <ms>` -> `held`, `released`; `since` -> `since <dbg>`.
+- `free_writer` / `free_reader`: free-running phase (RG-ST02-3.5), see `interleave.rs`.

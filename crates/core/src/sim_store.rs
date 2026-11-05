@@ -176,6 +176,7 @@ impl Store for SimStore {
         let mut log = st.log(|r| batch.iter().any(|w| w.record == *r))?;
         let (device, k) = (st.device, st.clock);
         let got = receive(device, &mut log, k, batch).map_err(ApplyError::Rejected)?;
+        // No-op writes are free on full storage, as in SQLite (Q-R1, ST-02 04_plan.md).
         if !got.new.is_empty() || got.clock != k {
             st.charge(got.new.len() + 1)?;
             st.store(got.new, got.clock);
@@ -227,6 +228,7 @@ impl Store for SimStore {
     async fn advance_watermark(&self, peer: DeviceId, to: Watermark) -> Result<(), StoreError> {
         let mut st = self.state.borrow_mut();
         st.gate(true)?;
+        // No-op advance is free on full storage, as in SQLite (Q-R1, ST-02 04_plan.md).
         if st.watermarks.get(&peer).is_none_or(|m| to > *m) {
             st.charge(1)?;
             st.watermarks.insert(peer, to);

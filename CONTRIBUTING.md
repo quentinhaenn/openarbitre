@@ -101,6 +101,8 @@ On a `Cargo.lock` conflict, never merge it by hand: take `main`'s (`git checkout
 - Single entry point, locally and in CI. It runs every `scripts/ci.d/*.sh`, sorted bytewise (`LC_COLLATE=C`). A failing check makes the verdict `red`.
 - **Adding a check**: a file `scripts/ci.d/NN-stxx-<subject>.sh`, with `NN ≥ 60`. Its helper code goes in `scripts/lib/`, never in `ci.d/`. The `*-st01-*` files and `ci.sh` do not change.
 - Such an addition goes through **a dedicated PR with the `ci-change` label** (accepted deviation from AC-6.6, see the judge).
+- **Lint (`60-st02-lint.sh`)**: `cargo fmt --check`, `clippy -D warnings` on every target, and a cognitive-complexity gate (threshold in `clippy.toml`) on production code only. There is deliberately no function-length limit: a clean 80-line function beats three unreadable 20-line ones.
+- **Mutation** runs 3 mutants in parallel (`--jobs 3`, the CI runner has 4 cores).
 
 ## The judge (`judge.yml`)
 
