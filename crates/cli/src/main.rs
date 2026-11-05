@@ -4,16 +4,18 @@ mod modules;
 mod signals;
 mod store;
 
-use std::ffi::OsString;
+use std::collections::BTreeSet;
+use std::ffi::{OsStr, OsString};
 use std::io::Write;
 use std::path::PathBuf;
 
 use arbitre_core::{
     ActionDescriptor, ActionError, Author, Category, Context, Module, ModuleStore, conforms_output,
-    document, encode, render,
+    document, encode, pre_scan, render,
 };
 use arbitre_sqlite::SqliteStore;
 use clap::ArgMatches;
+use clap::error::ErrorKind;
 
 use cli::Outcome;
 use clock::SystemClock;
@@ -71,14 +73,60 @@ fn module_of<'a>(modules: &'a Modules, action: &str) -> Option<&'a dyn Module<Sq
         .map(|m| m.as_ref())
 }
 
-fn execute(action: &ActionDescriptor, leaf: &ArgMatches, modules: &Modules) -> Outcome {
-    let flag = leaf.get_one::<PathBuf>("store");
+/// The store located before parsing: the existing handle, else opened (created) at `path`.
+struct Located {
+    path: Result<PathBuf, ActionError>,
+    handle: Option<SqliteStore>,
+}
+
+/// Before parsing: the location, once, and the enabled state of an existing store only
+/// (RG-ST04-2.3; plan P-8). A location error gives the default state; the action reports it.
+fn locate(
+    store_flag: Option<&str>,
+    modules: &Modules,
+) -> Result<(Located, BTreeSet<&'static str>), ActionError> {
     let path = store::location(
-        flag.map(|p| p.as_os_str()),
+        store_flag.map(OsStr::new),
         |k| std::env::var_os(k),
         std::env::consts::OS,
-    )?;
-    let store = store::open(&path)?;
+    );
+    let handle = match &path {
+        Ok(p) => store::open_existing(p)?,
+        Err(_) => None,
+    };
+    let enabled = match &handle {
+        Some(s) => foundation::enabled(s, modules)?,
+        None => BTreeSet::new(),
+    };
+    Ok((Located { path, handle }, enabled))
+}
+
+/// A first command word naming a disabled module (RG-ST04-2.2).
+fn not_enabled(
+    first_word: Option<&str>,
+    modules: &Modules,
+    enabled: &BTreeSet<&str>,
+) -> Option<ActionError> {
+    let m = modules::ids(modules)
+        .into_iter()
+        .find(|m| first_word == Some(*m) && !enabled.contains(m))?;
+    Some(ActionError::module_not_enabled(
+        "module_not_enabled",
+        format!("module {m} is not enabled; run: arbitre module enable --module {m}"),
+    ))
+}
+
+fn execute(
+    action: &ActionDescriptor,
+    leaf: &ArgMatches,
+    modules: &Modules,
+    located: Located,
+) -> Outcome {
+    let store = match located.handle {
+        Some(s) => s,
+        None => store::open(&located.path?)?,
+    };
+    // Signals are shown here, before the action (T-6).
     let clock = SystemClock;
     let author = Author::CliUser;
     let input = cli::input(leaf, action);
@@ -108,29 +156,53 @@ fn execute(action: &ActionDescriptor, leaf: &ArgMatches, modules: &Modules) -> O
 /// Everything from catalogue to result; the store is dropped on return, before any write.
 fn run(args: &[OsString], json: bool) -> Done {
     let modules = modules::all();
-    let catalog = match modules::catalog(&modules) {
-        Ok(c) => c,
-        Err(e) => {
-            return finish(
-                Err(ActionError::tool_error("catalog_invalid", e.message)),
-                json,
-            );
-        }
+    // The whole build is validated, whatever is enabled (plan P-4).
+    if let Err(e) = modules::catalog(&modules, |_| true) {
+        return finish(
+            Err(ActionError::tool_error("catalog_invalid", e.message)),
+            json,
+        );
+    }
+    let words: Vec<_> = args.iter().skip(1).map(|a| a.to_string_lossy()).collect();
+    let words: Vec<&str> = words.iter().map(|w| w.as_ref()).collect();
+    let scan = pre_scan(&words);
+    let (located, enabled) = match locate(scan.store, &modules) {
+        Ok(x) => x,
+        Err(e) => return unreadable(args, &modules, e, json),
     };
+    if let Some(e) = not_enabled(scan.first_word, &modules, &enabled) {
+        return finish(Err(e), json);
+    }
+    let catalog = modules::catalog(&modules, |m| enabled.contains(m))
+        .expect("a subset of a valid build is valid");
     let matches = match cli::command(&catalog).try_get_matches_from(args) {
         Ok(m) => m,
-        // Human help/version: the text itself, not a `help: …` rendering.
-        Err(e) if !json && !e.use_stderr() => {
-            return Done {
-                out: e.to_string(),
-                err: String::new(),
-                code: 0,
-            };
-        }
-        Err(e) => return finish(cli::usage_error(e), json),
+        Err(e) => return clap_exit(e, json),
     };
     let (action, leaf) = cli::selected(&matches, &catalog);
-    finish(execute(action, leaf, &modules), json)
+    finish(execute(action, leaf, &modules, located), json)
+}
+
+/// Help, version or usage error.
+fn clap_exit(e: clap::Error, json: bool) -> Done {
+    if json || e.use_stderr() {
+        return finish(cli::usage_error(e), json);
+    }
+    // Human help/version: the text itself, not a `help: …` rendering.
+    Done {
+        out: e.to_string(),
+        err: String::new(),
+        code: 0,
+    }
+}
+
+/// An unreadable store stops everything but `--version` (CONFLICT-ST04-2).
+fn unreadable(args: &[OsString], modules: &Modules, e: ActionError, json: bool) -> Done {
+    let foundation = modules::catalog(modules, |_| false).expect("valid build");
+    match cli::command(&foundation).try_get_matches_from(args) {
+        Err(v) if v.kind() == ErrorKind::DisplayVersion => clap_exit(v, json),
+        _ => finish(Err(e), json),
+    }
 }
 
 fn main() {
@@ -159,8 +231,6 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
-
     use arbitre_core::Value;
     use arbitre_core::{LoggedAs, Schema};
 

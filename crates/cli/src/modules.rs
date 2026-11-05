@@ -27,9 +27,14 @@ pub fn ids(modules: &Modules) -> Vec<&'static str> {
     modules.iter().map(|m| m.id()).collect()
 }
 
-/// Catalogue of the foundation and `modules` (RG-ST03-4.6, RG-ST04-3.4).
-pub fn catalog(modules: &Modules) -> Result<Catalog, CatalogError> {
-    let listed: Vec<_> = modules.iter().map(|m| (m.id(), m.actions())).collect();
+/// Catalogue of the foundation and the `modules` kept by `enabled` (RG-ST03-4.6,
+/// RG-ST04-2.1, 3.4); the `module` enum always names the whole build.
+pub fn catalog(modules: &Modules, enabled: impl Fn(&str) -> bool) -> Result<Catalog, CatalogError> {
+    let listed: Vec<_> = modules
+        .iter()
+        .filter(|m| enabled(m.id()))
+        .map(|m| (m.id(), m.actions()))
+        .collect();
     Catalog::build(&foundation::descriptors(&ids(modules)), &listed)
 }
 
@@ -40,7 +45,7 @@ mod tests {
     #[test]
     fn shipped_catalogue_builds() {
         // E-ST03-7 "without test-actions" (DA F-7 of ST-03 and of ST-04).
-        let c = catalog(&Vec::new()).expect("shipped catalogue valid");
+        let c = catalog(&Vec::new(), |_| true).expect("shipped catalogue valid");
         let names: Vec<_> = c.actions().iter().map(|a| a.name.as_str()).collect();
         assert!(names.contains(&"arbitre.module.list"));
         assert!(!names.contains(&"arbitre.module.enable"));
@@ -48,7 +53,7 @@ mod tests {
 
     #[test]
     fn full_catalogue_builds() {
-        let c = catalog(&all()).expect("catalogue valid");
+        let c = catalog(&all(), |_| true).expect("catalogue valid");
         let test_actions = cfg!(feature = "test-actions");
         let has = |n: &str| c.actions().iter().any(|a| a.name == n);
         assert!(!test_actions || (has("arbitre.test.echo") && has("fake-a.put")));

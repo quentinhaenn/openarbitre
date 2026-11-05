@@ -172,7 +172,7 @@ mod tests {
     use super::*;
 
     fn id(args: &[&str]) -> String {
-        let catalog = crate::modules::catalog(&crate::modules::all()).unwrap();
+        let catalog = crate::modules::catalog(&crate::modules::all(), |_| true).unwrap();
         let e = command(&catalog)
             .try_get_matches_from(args)
             .expect_err("malformed");

@@ -2,11 +2,13 @@
 //! (ST-03 specs RG-ST03-3.3, 5.1 to 5.3; plan P-6, P-13).
 
 use std::ffi::{OsStr, OsString};
+use std::fs::File;
 use std::future::Future;
+use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
 use std::task::{Context, Poll, Waker};
 
-use arbitre_core::{ActionError, ApplyError, Cause, StoreError};
+use arbitre_core::{ActionError, ApplyError, Cause, Damage, StoreError};
 use arbitre_sqlite::{Options, SqliteStore};
 
 /// Store file path: `flag` > non-empty `ARBITRE_STORE` > platform default (RG-ST03-5.1).
@@ -65,9 +67,24 @@ pub fn open(path: &Path) -> Result<SqliteStore, ActionError> {
 /// Opens `path` only if it already holds a store, never writing (RG-ST04-2.3; plan P-8):
 /// absent or empty file ⇒ `None`; header not SQLite with application id `ARBT` ⇒
 /// `storage_corrupted`; otherwise `SqliteStore::open`.
-#[expect(dead_code, reason = "called from main.rs by T-4")]
 pub fn open_existing(path: &Path) -> Result<Option<SqliteStore>, ActionError> {
-    todo!("T-4 {}", path.display())
+    let io = |e: std::io::Error| map_store(StoreError::Unavailable(Cause::Io(e.to_string())));
+    let mut head = Vec::new();
+    match File::open(path) {
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(io(e)),
+        Ok(f) => f.take(100).read_to_end(&mut head).map_err(io)?,
+    };
+    if head.is_empty() {
+        return Ok(None);
+    }
+    // SQLite header magic, then `application_id` big-endian at offset 68.
+    if !head.starts_with(b"SQLite format 3\0") || head.get(68..72) != Some(&b"ARBT"[..]) {
+        return Err(map_store(StoreError::Corrupted(Damage::NotAStore)));
+    }
+    SqliteStore::open(path, &Options::default())
+        .map(Some)
+        .map_err(map_store)
 }
 
 /// `StoreError` → `ToolError` with the ids of RG-ST03-3.3.
@@ -85,7 +102,6 @@ pub fn map_store(e: StoreError) -> ActionError {
 }
 
 /// `ApplyError` → `ToolError`: `Rejected` → `write_rejected`, `Store` → `map_store`.
-#[cfg_attr(not(feature = "test-actions"), expect(dead_code))]
 pub fn map_apply(e: ApplyError) -> ActionError {
     match e {
         ApplyError::Rejected(r) => {
@@ -111,7 +127,7 @@ mod tests {
     use std::collections::BTreeMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use arbitre_core::{Category, Cause, Damage, Rejection};
+    use arbitre_core::{Category, Rejection};
 
     use super::*;
 
@@ -266,6 +282,42 @@ mod tests {
             open(&file.join("x/arbitre.db")).err().expect("refused"),
             "storage_unavailable",
         );
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    /// A valid one-page SQLite database with no table and `application_id` 0, which
+    /// `SqliteStore::open` would initialise.
+    fn schemaless_sqlite() -> Vec<u8> {
+        let mut p = vec![0u8; 4096];
+        p[..16].copy_from_slice(b"SQLite format 3\0");
+        p[16..24].copy_from_slice(&[0x10, 0, 1, 1, 0, 64, 32, 32]);
+        for at in [24, 28, 44, 92] {
+            p[at + 3] = 1; // change counter, page count, schema format, version-valid-for
+        }
+        p[100..108].copy_from_slice(&[0x0d, 0, 0, 0, 0, 0x10, 0, 0]); // empty table leaf
+        p
+    }
+
+    #[test]
+    fn open_existing_reads_only_stores() {
+        let d = tmp();
+        let p = d.join("a.db");
+        assert!(open_existing(&p).expect("absent").is_none());
+        std::fs::write(&p, b"").unwrap();
+        assert!(open_existing(&p).expect("empty").is_none());
+        std::fs::write(&p, schemaless_sqlite()).unwrap();
+        tool(
+            open_existing(&p).err().expect("refused"),
+            "storage_corrupted",
+        );
+        assert_eq!(std::fs::read(&p).unwrap(), schemaless_sqlite());
+        tool(
+            open_existing(&p.join("x")).err().expect("parent is a file"),
+            "storage_unavailable",
+        );
+        let q = d.join("b.db");
+        drop(open(&q).expect("created"));
+        assert!(open_existing(&q).expect("store").is_some());
         let _ = std::fs::remove_dir_all(d);
     }
 
