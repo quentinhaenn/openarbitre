@@ -131,3 +131,9 @@ Native gitleaks format, one fingerprint per line, **each preceded by a `# justif
 - `arbitre-core` is `#![no_std]` + `alloc`: no system time, no I/O.
 - A local write goes **only** through `Log::write`, which computes `seen` and stamps the write. `Log::merge` is reserved for received batches.
 - **Deserialization contract (ST-02 onwards)**: the round trip of a `Write` is exact, `seen` included. Otherwise a re-emitted copy is an identity with two contents, hence an anomaly.
+
+## Network clients
+
+- Tests observe the network through `Observer` (`crates/cli/tests/support/network.rs`): a local proxy that every spawned process reaches through `HTTP_PROXY`, `HTTPS_PROXY` and `ALL_PROXY` (both cases), with `NO_PROXY` empty. It records each attempt (host, port).
+- **Cut mode refuses connections at the proxy; it does not cut the network.** A client that ignores the proxy variables (raw TCP, its own DNS, some WebSocket stacks) goes around the observer and is neither recorded nor refused.
+- So no network client may disable the proxy settings, and each adapter story asserts in its own `tests/<adapter>.rs`, through `Observer`, that its traffic **is** recorded.
