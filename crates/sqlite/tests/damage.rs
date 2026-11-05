@@ -2,16 +2,19 @@
 
 #[path = "support/child.rs"]
 mod child;
+#[path = "support/common.rs"]
+mod common;
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use arbitre_core::{
-    Author, Cause, Damage, DeviceId, LocalChange, Position, Seen, Stamp, Store, StoreError,
-    TargetKind, Watermark, Write,
+    Author, Cause, Change, Damage, DeviceId, LocalChange, Position, Seen, Stamp, Store, StoreError,
+    TargetKind, Watermark, Write, ready,
 };
 use arbitre_sqlite::{Options, SqliteStore};
-use child::{Child, Rng, block_on, field_change, fresh_dir, rec, seed};
+use child::Child;
+use common::{Rng, fresh_dir, open, rec, seed};
 use rusqlite::Connection;
 
 const T: Duration = Duration::from_secs(20);
@@ -21,18 +24,18 @@ fn child_entry() {
     child::child_main();
 }
 
-fn open(path: &Path) -> Result<SqliteStore, StoreError> {
+fn try_open(path: &Path) -> Result<SqliteStore, StoreError> {
     SqliteStore::open(path, &Options::default())
 }
 
 fn open_err(path: &Path) -> StoreError {
-    open(path).err().expect("open must be refused")
+    try_open(path).err().expect("open must be refused")
 }
 
 fn lc(id: &str, value: &str) -> LocalChange {
     LocalChange {
         record: rec("c", id),
-        change: field_change("f", value.as_bytes()),
+        change: Change::field("f", value.as_bytes()),
         author: Author::System,
     }
 }
@@ -43,12 +46,12 @@ fn lc(id: &str, value: &str) -> LocalChange {
 fn build(tag: &str) -> (PathBuf, PathBuf) {
     let dir = fresh_dir(tag);
     let path = dir.join("store.db");
-    let store = open(&path).unwrap();
+    let store = open(&path);
     for (id, v) in [("a", "1"), ("a", "2"), ("a", "3"), ("b", "1")] {
-        block_on(store.apply_local(1000, &[lc(id, v)])).unwrap();
+        ready(store.apply_local(1000, &[lc(id, v)])).unwrap();
     }
     // A watermark so that every page of the file holds data (truncation case).
-    block_on(store.advance_watermark(DeviceId::from_u128(9), Watermark(1, 0))).unwrap();
+    ready(store.advance_watermark(DeviceId::from_u128(9), Watermark(1, 0))).unwrap();
     drop(store);
     (dir, path)
 }
@@ -197,7 +200,7 @@ fn truncation_is_refused() {
             .set_len(len as u64)
             .unwrap();
         let before = std::fs::read(&p).unwrap();
-        match open(&p) {
+        match try_open(&p) {
             Err(StoreError::Corrupted(_)) => {}
             Err(other) => panic!("len {len}: {other:?}"),
             Ok(_) => panic!("len {len}: truncated store opened"),
@@ -254,17 +257,17 @@ type Op = fn(&SqliteStore) -> Result<(), StoreError>;
 fn ops() -> Vec<(&'static str, Op)> {
     vec![
         ("writes_of", |s| {
-            block_on(s.writes_of(&rec("c", "a"))).map(drop)
+            ready(s.writes_of(&rec("c", "a"))).map(drop)
         }),
-        ("state", |s| block_on(s.state(&rec("c", "a"))).map(drop)),
-        ("records", |s| block_on(s.records("m", "c")).map(drop)),
+        ("state", |s| ready(s.state(&rec("c", "a"))).map(drop)),
+        ("records", |s| ready(s.records("m", "c")).map(drop)),
         ("writes_since", |s| {
-            block_on(s.writes_since(Position(0))).map(drop)
+            ready(s.writes_since(Position(0))).map(drop)
         }),
         ("apply", |s| {
             let w = Write {
                 record: rec("c", "a"),
-                change: field_change("g", b"x"),
+                change: Change::field("g", b"x"),
                 stamp: Stamp {
                     l: 2000,
                     c: 0,
@@ -273,15 +276,15 @@ fn ops() -> Vec<(&'static str, Op)> {
                 seen: Seen::new(),
                 author: Author::System,
             };
-            block_on(s.apply(&[w])).map(drop).map_err(store_err)
+            ready(s.apply(&[w])).map(drop).map_err(store_err)
         }),
         ("apply_local", |s| {
-            block_on(s.apply_local(1000, &[lc("a", "z")]))
+            ready(s.apply_local(1000, &[lc("a", "z")]))
                 .map(drop)
                 .map_err(store_err)
         }),
         ("advance_watermark", |s| {
-            block_on(s.advance_watermark(DeviceId::from_u128(9), Watermark(1, 0)))
+            ready(s.advance_watermark(DeviceId::from_u128(9), Watermark(1, 0)))
         }),
     ]
 }
@@ -317,18 +320,18 @@ fn damage_after_open_is_found_by_the_operation() {
             let (d2, path) = build("dmg-live");
             let (_, sql, want) = case(&path, name);
             let (sql, want) = (&sql, &want);
-            let store = open(&path).unwrap();
+            let store = open(&path);
             raw(&path, sql);
             let got = run(&store);
             let tag = format!("{name} / {op}");
             if finds(name, op) {
                 expect_corrupted(got.expect_err(&tag), want, &tag);
                 // Poison: the handle keeps answering the same error, also for record `b`.
-                let again = block_on(store.writes_of(&rec("c", "b"))).expect_err(&tag);
+                let again = ready(store.writes_of(&rec("c", "b"))).expect_err(&tag);
                 expect_corrupted(again, want, &format!("{tag} (poison)"));
-                let dev = block_on(store.device()).expect_err(&tag);
+                let dev = ready(store.device()).expect_err(&tag);
                 expect_corrupted(dev, want, &format!("{tag} (poison, device)"));
-                let empty = block_on(store.apply_local(1000, &[])).map_err(store_err);
+                let empty = ready(store.apply_local(1000, &[])).map_err(store_err);
                 expect_corrupted(
                     empty.expect_err(&tag),
                     want,
@@ -350,7 +353,7 @@ fn damage_after_open_is_found_by_the_operation() {
                     "{tag}"
                 );
             } else {
-                let again = open(&path).unwrap().check_all();
+                let again = open(&path).check_all();
                 expect_corrupted(again.expect_err(&tag), want, &tag);
             }
             let _ = std::fs::remove_dir_all(d2);
@@ -361,17 +364,17 @@ fn damage_after_open_is_found_by_the_operation() {
 #[test]
 fn other_records_survive_a_damaged_one() {
     let (dir, path) = build("dmg-other");
-    let store = open(&path).unwrap();
+    let store = open(&path);
     raw(&path, "UPDATE writes SET field = x'ff' WHERE pos = 2;");
-    assert_eq!(block_on(store.writes_of(&rec("c", "b"))).unwrap().len(), 1);
-    block_on(store.apply_local(1000, &[lc("b", "q")])).unwrap();
+    assert_eq!(ready(store.writes_of(&rec("c", "b"))).unwrap().len(), 1);
+    ready(store.apply_local(1000, &[lc("b", "q")])).unwrap();
     let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
 fn colliding_orphan_seen_rolls_back_a_received_write() {
     let (dir, path) = build("dmg-p8");
-    let store = open(&path).unwrap();
+    let store = open(&path);
     raw(
         &path,
         "INSERT INTO seen VALUES (5, 0, x'', 1, 0, x'00000000000000000000000000000000');",
@@ -379,7 +382,7 @@ fn colliding_orphan_seen_rolls_back_a_received_write() {
     let foreign = DeviceId::from_u128(9);
     let w = Write {
         record: rec("c", "z"),
-        change: field_change("f", b"x"),
+        change: Change::field("f", b"x"),
         stamp: Stamp {
             l: 2000,
             c: 0,
@@ -395,12 +398,12 @@ fn colliding_orphan_seen_rolls_back_a_received_write() {
         )]),
         author: Author::System,
     };
-    match block_on(store.apply(&[w])) {
+    match ready(store.apply(&[w])) {
         Err(arbitre_core::ApplyError::Store(StoreError::Corrupted(Damage::Engine(_)))) => {}
         other => panic!("expected Corrupted(Engine), got {other:?}"),
     }
     drop(store);
-    let again = open(&path);
+    let again = try_open(&path);
     assert!(again.is_err(), "orphan must be refused at reopen");
     expect_corrupted(again.err().unwrap(), &pos(5), "reopen");
     let _ = std::fs::remove_dir_all(dir);
@@ -411,7 +414,7 @@ fn colliding_orphan_seen_rolls_back_a_received_write() {
 #[test]
 fn checked_rows_are_skipped_at_open_but_not_by_check_all() {
     let (dir, path) = build("dmg-incr");
-    open(&path).unwrap().check_all().unwrap();
+    open(&path).check_all().unwrap();
     let marker = |p: &Path| -> i64 {
         let c = Connection::open(p).unwrap();
         c.query_row("SELECT checked FROM device", [], |r| r.get(0))
@@ -419,12 +422,12 @@ fn checked_rows_are_skipped_at_open_but_not_by_check_all() {
     };
     assert_eq!(marker(&path), 4);
     raw(&path, "UPDATE writes SET field = x'ff' WHERE pos = 2;");
-    let store = open(&path).expect("checked rows are not re-read at open");
+    let store = try_open(&path).expect("checked rows are not re-read at open");
     expect_corrupted(store.check_all().unwrap_err(), &pos(2), "check_all");
     // A new write after the marker is checked at the next open; the marker moves only on success.
     let (dir2, path2) = build("dmg-incr-new");
-    open(&path2).unwrap();
-    block_on(open(&path2).unwrap().apply_local(1000, &[lc("a", "4")])).unwrap();
+    open(&path2);
+    ready(open(&path2).apply_local(1000, &[lc("a", "4")])).unwrap();
     raw(&path2, "UPDATE writes SET field = x'ff' WHERE pos = 5;");
     let before = std::fs::read(&path2).unwrap();
     expect_corrupted(open_err(&path2), &pos(5), "new write");
@@ -454,11 +457,11 @@ fn child_open_matches_the_read_that_found_the_damage() {
         ),
     ] {
         let (dir, path) = build("dmg-child");
-        let store = open(&path).unwrap();
+        let store = open(&path);
         // pos 5 is past the marker set by the open above.
-        block_on(store.apply_local(1000, &[lc("a", "4")])).unwrap();
+        ready(store.apply_local(1000, &[lc("a", "4")])).unwrap();
         raw(&path, sql);
-        let found = block_on(store.writes_of(&rec("c", "a"))).expect_err(name);
+        let found = ready(store.writes_of(&rec("c", "a"))).expect_err(name);
         assert!(
             matches!(found, StoreError::Corrupted(_)),
             "{name}: {found:?}"
@@ -492,19 +495,19 @@ fn median_ms(mut f: impl FnMut()) -> f64 {
 fn open_check_timing() {
     let dir = fresh_dir("dmg-timing");
     let (big, small) = (dir.join("big.db"), dir.join("small.db"));
-    let store = open(&big).unwrap();
+    let store = open(&big);
     for b in 0..100 {
         let changes: Vec<LocalChange> = (0..100).map(|i| lc("r", &format!("{b}.{i}"))).collect();
-        block_on(store.apply_local(1000, &changes)).unwrap();
+        ready(store.apply_local(1000, &changes)).unwrap();
     }
     drop(store);
-    block_on(open(&small).unwrap().apply_local(1000, &[lc("r", "0")])).unwrap();
+    ready(open(&small).apply_local(1000, &[lc("r", "0")])).unwrap();
     let t = Instant::now();
-    drop(open(&big).unwrap()); // first open after the writes: checks all 10,000, sets the marker
+    drop(open(&big)); // first open after the writes: checks all 10,000, sets the marker
     let first_ms = t.elapsed().as_secs_f64() * 1000.0;
-    let small_ms = median_ms(|| drop(open(&small).unwrap()));
-    let incremental = median_ms(|| drop(open(&big).unwrap())) - small_ms;
-    let handle = open(&big).unwrap();
+    let small_ms = median_ms(|| drop(open(&small)));
+    let incremental = median_ms(|| drop(open(&big))) - small_ms;
+    let handle = open(&big);
     let full = median_ms(|| handle.check_all().unwrap());
     let quick = median_ms(|| {
         let c = Connection::open(&big).unwrap();

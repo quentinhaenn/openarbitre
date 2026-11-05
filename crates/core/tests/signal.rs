@@ -1,11 +1,7 @@
 //! Signals, pure parts (specs RG-ST04-6.1, 6.2; plan P-7, T-6).
 mod support;
 
-#[path = "support/contract.rs"]
-mod contract;
-
 use arbitre_core::*;
-use contract::ready;
 use jiff::tz::TimeZone;
 
 fn deposit(s: &SimStore, device: DeviceId, at: u64, source: &str, message: &str) -> RecordId {

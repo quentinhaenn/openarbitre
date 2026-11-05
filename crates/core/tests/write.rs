@@ -7,7 +7,7 @@ use arbitre_core::*;
 use support::*;
 
 fn valid() -> Write {
-    let mut w = write(record("d"), field("f", "v"), stamp(10, 0, 1));
+    let mut w = write(record("d"), Change::field("f", b"v"), stamp(10, 0, 1));
     w.seen.insert(kind("f"), stamp(9, 0, 2));
     w.seen.insert(TargetKind::Delete, stamp(5, 3, 1));
     w
@@ -135,7 +135,7 @@ fn empty_identifiers_rejected() {
             ..valid()
         },
         Write {
-            change: field("", "v"),
+            change: Change::field("", b"v"),
             ..valid()
         },
     ];
@@ -154,7 +154,7 @@ fn empty_identifiers_rejected() {
 fn empty_value_accepted() {
     assert_eq!(
         validate(&[Write {
-            change: field("f", ""),
+            change: Change::field("f", b""),
             ..valid()
         }]),
         Ok(())

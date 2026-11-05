@@ -1,12 +1,15 @@
 //! `Value`, canonical JSON, human rendering, categories, result document (ST-03 T-2;
 //! E-ST03-8, RG-ST03-2.1, 2.3, 2.4, 3.1).
 
+mod support;
+
 use std::collections::BTreeMap;
 
 use arbitre_core::Value;
 use arbitre_core::{ActionError, Category, document, encode, render};
 use proptest::prelude::*;
 use proptest::test_runner::{Config as ProptestConfig, RngSeed};
+use support::{obj, s};
 
 fn config() -> ProptestConfig {
     ProptestConfig {
@@ -14,19 +17,6 @@ fn config() -> ProptestConfig {
         rng_seed: RngSeed::Fixed(0x5703_0001),
         ..ProptestConfig::default()
     }
-}
-
-fn s(x: &str) -> Value {
-    Value::Str(x.into())
-}
-
-fn obj(pairs: &[(&str, Value)]) -> Value {
-    Value::Object(
-        pairs
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.clone()))
-            .collect(),
-    )
 }
 
 /// Strings with controls, quotes, backslashes, `/`, non-Latin and any char.

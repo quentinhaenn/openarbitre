@@ -2,13 +2,9 @@
 //! (E-ST04-9; specs RG-ST04-1.5, 1.6, 2.2, 3.3 to 3.5; plan T-2).
 mod support;
 
-#[path = "support/contract.rs"]
-mod contract;
-
 use std::collections::BTreeSet;
 
 use arbitre_core::*;
-use contract::ready;
 
 const D: u128 = 7;
 

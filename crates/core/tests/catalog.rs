@@ -1,6 +1,8 @@
 //! Catalogue build, name rule, conformance, text parsers, JSON Schema form (ST-03 T-3;
 //! E-ST03-7, E-ST03-9, RG-ST03-1.2, 4.2 to 4.6).
 
+mod support;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use arbitre_core::Value;
@@ -8,6 +10,7 @@ use arbitre_core::{
     ActionDescriptor, Catalog, CatalogError, LoggedAs, Network, Property, Schema, command_path,
     conforms_input, conforms_output, encode, mcp_name, parse_text,
 };
+use support::{obj, s};
 
 fn prop(name: &str, required: bool, schema: Schema) -> Property {
     Property {
@@ -132,19 +135,6 @@ fn echo_input() -> Schema {
             schema: string(),
         },
     ])
-}
-
-fn s(x: &str) -> Value {
-    Value::Str(x.into())
-}
-
-fn obj(pairs: &[(&str, Value)]) -> Value {
-    Value::Object(
-        pairs
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.clone()))
-            .collect(),
-    )
 }
 
 // --- E-ST03-7: catalogue build ---
