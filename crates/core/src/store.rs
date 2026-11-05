@@ -24,6 +24,12 @@ pub struct ClockState {
     pub c: u32,
 }
 
+impl From<Stamp> for ClockState {
+    fn from(s: Stamp) -> Self {
+        Self { l: s.l, c: s.c }
+    }
+}
+
 /// Place in the store's commit order. Only the order is contractual (RG-ST02-5.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Position(pub u64);
@@ -145,7 +151,7 @@ pub trait Store {
     /// Mark of `peer`; `None` = nothing received (RG-ST02-5.4).
     async fn watermark(&self, peer: DeviceId) -> Result<Option<Watermark>, StoreError>;
 
-    /// `M(peer) := max(M(peer), to)` (RG-ST02-5.4). A no-op advance succeeds even on full storage (see `apply`).
+    /// `M(peer) := max(M(peer), to)` (RG-ST02-5.4). A no-op advance succeeds even on full storage (Q-R1, see `apply`).
     async fn advance_watermark(&self, peer: DeviceId, to: Watermark) -> Result<(), StoreError>;
 }
 
@@ -164,12 +170,7 @@ pub fn rebuild(device: DeviceId, k: ClockState, known: &[Write]) -> Result<Log, 
     let mut log = Log::with_clock(clock);
     log.merge(known)
         .map_err(|_| Damage::StoredWrite { position: None })?;
-    if known.iter().any(|w| {
-        ClockState {
-            l: w.stamp.l,
-            c: w.stamp.c,
-        } > k
-    }) {
+    if known.iter().any(|w| ClockState::from(w.stamp) > k) {
         return Err(Damage::ClockState);
     }
     match log.anomalies().into_iter().find(|a| a.stamp.a == device) {
@@ -202,10 +203,7 @@ pub fn stamp_local(
     }
     let clock = writes
         .last()
-        .map_or_else(ClockState::default, |w| ClockState {
-            l: w.stamp.l,
-            c: w.stamp.c,
-        });
+        .map_or_else(ClockState::default, |w| w.stamp.into());
     *log = work;
     Ok((writes, clock))
 }
@@ -244,10 +242,7 @@ pub fn receive(
         .collect();
     let clock = batch
         .iter()
-        .map(|w| ClockState {
-            l: w.stamp.l,
-            c: w.stamp.c,
-        })
+        .map(|w| ClockState::from(w.stamp))
         .fold(k, ClockState::max);
     *log = work;
     Ok(Received { report, new, clock })
