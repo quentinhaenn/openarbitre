@@ -1,0 +1,44 @@
+{
+  "feature": "ST-04 — Modules you can enable, kept apart, with one generic conformance test",
+  "started_at": "2026-11-05T00:00:00+00:00",
+  "source": ".ctdd/cadre/04_plan.md § ST-04",
+  "current_phase": 2,
+  "phases": {
+    "1_story": {
+      "status": "done",
+      "file": ".ctdd/stories/ST-04/01_story.md"
+    },
+    "2_specs": {
+      "status": "awaiting arbitration",
+      "file": ".ctdd/stories/ST-04/02_specs.md",
+      "questions_for_quentin": ["Q1", "Q2", "Q3", "Q4", "Q5", "Q6", "Q7"],
+      "note": "branched from st-03/story (PR #8 not merged); rebase on main once ST-03 lands"
+    },
+    "3_archi": {
+      "status": "skipped (supporting zone; architectural notes folded into specs)",
+      "file": null
+    },
+    "4_plan": {
+      "status": "pending",
+      "file": null
+    },
+    "5_da": {
+      "status": "pending",
+      "file": null
+    },
+    "6_skeleton": {
+      "status": "pending",
+      "file": null
+    },
+    "7_implementation": {
+      "status": "pending",
+      "file": null
+    },
+    "8_review": {
+      "status": "pending",
+      "file": null
+    }
+  },
+  "ddd_zone": "supporting",
+  "da_max_iterations": 1
+}
