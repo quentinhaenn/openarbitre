@@ -1,0 +1,2 @@
+# Complexity gate (scripts/ci.d/60-st02-lint.sh). No function-length limit: see CONTRIBUTING.md.
+cognitive-complexity-threshold = 15
