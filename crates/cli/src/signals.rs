@@ -4,12 +4,12 @@
 use std::io::Write;
 
 use arbitre_core::{
-    ActionError, Author, Clock, LocalChange, Store, line, read_change, signal_changes,
+    ActionError, Author, Clock, LocalChange, Store, is_snake, line, read_change, signal_changes,
     signal_record, unread,
 };
 use arbitre_sqlite::SqliteStore;
 
-use crate::store::{block_on, map_apply, map_store};
+use crate::store::{block_on, map_apply, wait};
 
 fn system(record: &arbitre_core::RecordId, change: arbitre_core::Change) -> LocalChange {
     LocalChange {
@@ -20,7 +20,7 @@ fn system(record: &arbitre_core::RecordId, change: arbitre_core::Change) -> Loca
 }
 
 /// Writes one signal of this device, dated `now` (ST-11, ST-19 call it). `source` is
-/// `[a-z][a-z0-9_]*`; callers pass constants, so another is an `internal_error`.
+/// snake_case (`is_snake`); callers pass constants, so another is an `internal_error`.
 #[cfg_attr(
     not(feature = "test-actions"),
     expect(dead_code, reason = "called by `test.signal`, then by ST-11 and ST-19")
@@ -31,17 +31,13 @@ pub fn deposit(
     source: &str,
     message: &str,
 ) -> Result<(), ActionError> {
-    let snake = source.starts_with(|c: char| c.is_ascii_lowercase())
-        && source
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
-    if !snake {
+    if !is_snake(source) {
         return Err(ActionError::tool_error(
             "internal_error",
             format!("signal source {source:?} is not snake_case"),
         ));
     }
-    let record = signal_record(block_on(store.device())?.map_err(map_store)?, now, source);
+    let record = signal_record(wait(store.device())?, now, source);
     let changes: Vec<_> = signal_changes(now, source, message)
         .into_iter()
         .map(|c| system(&record, c))
@@ -63,8 +59,8 @@ fn try_show_and_mark(
     clock: &dyn Clock,
     err: &mut dyn Write,
 ) -> Result<(), ActionError> {
-    let device = block_on(store.device())?.map_err(map_store)?;
-    let records = block_on(store.records("arbitre", "signal"))?.map_err(map_store)?;
+    let device = wait(store.device())?;
+    let records = wait(store.records("arbitre", "signal"))?;
     let tz = clock.timezone();
     let signals = unread(&records, device);
     for s in &signals {

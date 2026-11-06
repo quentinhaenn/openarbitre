@@ -10,8 +10,8 @@ use std::io::Write;
 use std::path::PathBuf;
 
 use arbitre_core::{
-    ActionDescriptor, ActionError, Author, Category, Context, ModuleStore, PreScan,
-    conforms_output, document, encode, pre_scan, render,
+    ActionDescriptor, ActionError, Author, Category, Context, ModuleStore, PreScan, conforms,
+    document, encode, pre_scan, render,
 };
 use arbitre_sqlite::SqliteStore;
 use clap::ArgMatches;
@@ -45,7 +45,7 @@ fn finish(r: Outcome, json: bool) -> Done {
 /// Output checked against its schema; `Usage` from an action is a contract breach (RG-ST03-3.4, 4.5).
 fn settle(action: &ActionDescriptor, r: Outcome) -> Outcome {
     match r {
-        Ok(v) => conforms_output(&action.output, &v)
+        Ok(v) => conforms(&action.output, &v)
             .map(|()| v)
             .map_err(|m| ActionError::tool_error("output_mismatch", m)),
         Err(e) if e.category() == Category::Usage => Err(ActionError::tool_error(

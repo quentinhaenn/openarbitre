@@ -6,7 +6,7 @@ use arbitre_core::{
 };
 
 use super::{Env, action, key, mutating, object, prop, string, text};
-use crate::store::{block_on, map_apply, map_store};
+use crate::store::{block_on, map_apply, wait};
 
 /// Inputs of `test.echo`: every subset type (mirror in `crates/core/tests/catalog.rs`).
 fn echo_input() -> Vec<arbitre_core::Property> {
@@ -181,7 +181,7 @@ fn write(input: &Value, env: &Env<'_>) -> Result<Value, ActionError> {
 }
 
 fn read(env: &Env<'_>) -> Result<Value, ActionError> {
-    let writes = block_on(env.store.writes_since(Position::START))?.map_err(map_store)?;
+    let writes = wait(env.store.writes_since(Position::START))?;
     let keys = writes
         .into_iter()
         .filter(|(_, w)| w.record.module == "arbitre" && w.record.category == "item")

@@ -32,7 +32,6 @@ impl SimClock {
         }
     }
 
-    /// Sets the time to `t` and unfreezes.
     pub fn set(&self, t: u64) {
         self.t.set(t);
         self.frozen.set(false);

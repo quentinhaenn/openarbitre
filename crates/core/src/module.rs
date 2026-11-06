@@ -96,7 +96,6 @@ impl<'a, S: Store> ModuleStore<'a, S> {
         }
     }
 
-    /// Namespace of this view.
     pub fn module(&self) -> &'static str {
         self.module
     }

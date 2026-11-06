@@ -66,7 +66,7 @@ impl ActionError {
         Self::new(Category::ToolError, id, message)
     }
 
-    /// Used by `test.not-enabled` until ST-04 owns enabling.
+    /// The action's module is disabled on this device (exit 4).
     pub fn module_not_enabled(id: &str, message: impl Into<String>) -> Self {
         Self::new(Category::ModuleNotEnabled, id, message)
     }

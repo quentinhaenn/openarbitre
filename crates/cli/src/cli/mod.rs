@@ -83,18 +83,16 @@ fn option(p: &Property) -> Arg {
 }
 
 fn scalar(a: Arg, s: &Schema) -> Arg {
+    let a = match s {
+        Schema::Enum(vs) => {
+            return a.value_parser(PossibleValuesParser::new(vs.clone()).map(Value::Str));
+        }
+        Schema::Integer { .. } => a.value_name("INTEGER").allow_negative_numbers(true),
+        Schema::Date => a.value_name("DATE"),
+        _ => a,
+    };
     let t = s.clone();
-    match s {
-        Schema::Enum(vs) => a.value_parser(PossibleValuesParser::new(vs.clone()).map(Value::Str)),
-        Schema::Integer { .. } => a
-            .value_name("INTEGER")
-            .allow_negative_numbers(true)
-            .value_parser(move |x: &str| parse_text(&t, x)),
-        Schema::Date => a
-            .value_name("DATE")
-            .value_parser(move |x: &str| parse_text(&t, x)),
-        _ => a.value_parser(move |x: &str| parse_text(&t, x)),
-    }
+    a.value_parser(move |x: &str| parse_text(&t, x))
 }
 
 /// The selected action and the matches that carry its options.

@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use arbitre_core::Value;
 use arbitre_core::{
     ActionDescriptor, Catalog, CatalogError, LoggedAs, Network, Property, Schema, command_path,
-    conforms_input, conforms_output, encode, mcp_name, parse_text,
+    conforms, encode, is_snake, parse_text,
 };
 
 fn prop(name: &str, required: bool, schema: Schema) -> Property {
@@ -403,13 +403,6 @@ fn command_paths() {
     assert_eq!(command_path("plan"), ["plan"]);
 }
 
-#[test]
-fn mcp_names() {
-    assert_eq!(mcp_name("plan.move-item"), "plan_move-item");
-    assert_eq!(mcp_name("arbitre.module.enable"), "arbitre_module_enable");
-    assert_eq!(mcp_name("plan"), "plan");
-}
-
 // --- RG-ST03-1.2, 4.4: text parsers (matrix US-1 rows 3-7) ---
 
 #[test]
@@ -503,7 +496,7 @@ fn echo_value(extra: &[(&str, Value)]) -> Value {
 #[test]
 fn conforming_inputs_accepted() {
     let schema = echo_input();
-    assert_eq!(conforms_input(&schema, &echo_value(&[])), Ok(()));
+    assert_eq!(conforms(&schema, &echo_value(&[])), Ok(()));
     let full = echo_value(&[
         ("count", Value::Int(100)),
         ("level", s("high")),
@@ -512,7 +505,7 @@ fn conforming_inputs_accepted() {
         ("note", s("n")),
         ("flag", Value::Bool(true)),
     ]);
-    assert_eq!(conforms_input(&schema, &full), Ok(()));
+    assert_eq!(conforms(&schema, &full), Ok(()));
 }
 
 #[test]
@@ -546,7 +539,7 @@ fn non_conforming_inputs_refused() {
         ("not an object", s("hi")),
     ];
     for (case, v) in bad {
-        assert!(conforms_input(&schema, &v).is_err(), "{case}");
+        assert!(conforms(&schema, &v).is_err(), "{case}");
     }
 }
 
@@ -561,9 +554,9 @@ fn output_conformance() {
         ),
     ]);
     let item = |n| obj(&[("n", Value::Int(n))]);
-    assert_eq!(conforms_output(&schema, &obj(&[("key", s("k"))])), Ok(()));
+    assert_eq!(conforms(&schema, &obj(&[("key", s("k"))])), Ok(()));
     assert_eq!(
-        conforms_output(
+        conforms(
             &schema,
             &obj(&[
                 ("key", s("k")),
@@ -584,10 +577,10 @@ fn output_conformance() {
             obj(&[("key", s("k")), ("items", Value::List(vec![item(-1)]))]),
         ),
     ] {
-        assert!(conforms_output(&schema, &v).is_err(), "{case}");
+        assert!(conforms(&schema, &v).is_err(), "{case}");
     }
-    assert_eq!(conforms_output(&empty(), &obj(&[])), Ok(()));
-    assert!(conforms_output(&empty(), &obj(&[("x", s("y"))])).is_err());
+    assert_eq!(conforms(&empty(), &obj(&[])), Ok(()));
+    assert!(conforms(&empty(), &obj(&[("x", s("y"))])).is_err());
 }
 
 // --- E-ST03-9: JSON Schema form ---
@@ -701,6 +694,16 @@ fn nested_output_properties_checked() {
 #[test]
 fn command_path_drops_arbitre_only_when_first() {
     assert_eq!(command_path("test.arbitre"), ["test", "arbitre"]);
+}
+
+#[test]
+fn snake_case() {
+    for ok in ["a", "sync_2", "a1_b2"] {
+        assert!(is_snake(ok), "{ok:?}");
+    }
+    for bad in ["", "A", "1a", "_a", "a_", "a__b", "a-b", "a b"] {
+        assert!(!is_snake(bad), "{bad:?}");
+    }
 }
 
 #[test]

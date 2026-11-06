@@ -11,7 +11,7 @@ use arbitre_core::{
 use arbitre_sqlite::SqliteStore;
 
 use super::{Modules, get, ids};
-use crate::store::{block_on, map_apply, map_store};
+use crate::store::{block_on, map_apply, wait};
 
 #[cfg(feature = "test-actions")]
 #[path = "arbitre_test.rs"]
@@ -196,8 +196,8 @@ pub fn execute(name: &str, input: Value, env: &Env<'_>) -> Result<Value, ActionE
 
 /// This device's enabled-state record and its projected state (RG-ST04-1.5).
 fn state(store: &SqliteStore) -> Result<(RecordId, Option<RecordState>), ActionError> {
-    let record = state_record(block_on(store.device())?.map_err(map_store)?);
-    let st = block_on(store.state(&record))?.map_err(map_store)?;
+    let record = state_record(wait(store.device())?);
+    let st = wait(store.state(&record))?;
     Ok((record, st))
 }
 
@@ -243,21 +243,20 @@ fn switch(input: &Value, on: bool, env: &Env<'_>) -> Result<Value, ActionError> 
 /// Revalidates every present record of `module` (P-10): `{category, id, problem, message}`.
 fn revalidate(module: &str, env: &Env<'_>) -> Result<Vec<Value>, ActionError> {
     let m = get(env.modules, module).expect("module is in the build enum");
-    let keys: BTreeSet<_> = block_on(env.store.writes_since(Position::START))?
-        .map_err(map_store)?
+    let keys: BTreeSet<_> = wait(env.store.writes_since(Position::START))?
         .into_iter()
         .filter(|(_, w)| w.record.module == module)
         .map(|(_, w)| w.record)
         .collect();
     let mut records = Vec::new();
     for r in keys {
-        let st = block_on(env.store.state(&r))?.map_err(map_store)?;
+        let st = wait(env.store.state(&r))?;
         if st.is_some_and(|s| s.status == Status::Present) {
             records.push((r.category, r.id));
         }
     }
     let view = ModuleStore::new(env.store, m.id(), env.author, env.clock);
-    let problems = block_on(m.revalidate(&records, &view))?.map_err(map_store)?;
+    let problems = wait(m.revalidate(&records, &view))?;
     Ok(problems
         .into_iter()
         .map(|p| {

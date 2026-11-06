@@ -122,6 +122,11 @@ pub fn block_on<F: Future>(fut: F) -> Result<F::Output, ActionError> {
     }
 }
 
+/// `block_on` then `map_store`.
+pub fn wait<T>(fut: impl Future<Output = Result<T, StoreError>>) -> Result<T, ActionError> {
+    block_on(fut)?.map_err(map_store)
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
