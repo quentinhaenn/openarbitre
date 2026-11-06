@@ -8,8 +8,8 @@ use std::collections::BTreeSet;
 
 use arbitre_core::{
     ApplyError, Author, Cause, Change, ClockState, Damage, DeviceId, Field, FieldValue,
-    LocalChange, Log, Position, RecordId, RecordState, Report, Seen, Stamp, Store, StoreError,
-    Target, TargetKind, Watermark, Write, rebuild, receive, stamp_local, validate,
+    LocalChange, Position, RecordId, RecordState, Report, Seen, Stamp, Store, StoreError,
+    TargetKind, Watermark, Write, rebuild, receive, stamp_local, validate,
 };
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior};
 
@@ -95,6 +95,13 @@ fn io(text: impl ToString) -> StoreError {
 
 fn unsigned(n: i64) -> Option<u64> {
     u64::try_from(n).ok()
+}
+
+fn clock_of(l: i64, c: i64) -> Option<ClockState> {
+    Some(ClockState {
+        l: unsigned(l)?,
+        c: u32::try_from(c).ok()?,
+    })
 }
 
 impl SqliteStore {
@@ -242,10 +249,7 @@ fn inspect(conn: &mut Connection) -> Result<Option<(DeviceId, i64)>, StoreError>
     };
     let device =
         <[u8; 16]>::try_from(device).map_err(|_| StoreError::Corrupted(Damage::DeviceId))?;
-    let clock = unsigned(l)
-        .zip(u32::try_from(c).ok())
-        .map(|(l, c)| ClockState { l, c })
-        .ok_or(StoreError::Corrupted(Damage::ClockState))?;
+    let clock = clock_of(l, c).ok_or(StoreError::Corrupted(Damage::ClockState))?;
     let top: Option<(i64, i64)> = tx
         .query_row(
             "SELECT l, c FROM writes ORDER BY l DESC, c DESC LIMIT 1",
@@ -254,11 +258,10 @@ fn inspect(conn: &mut Connection) -> Result<Option<(DeviceId, i64)>, StoreError>
         )
         .optional()
         .map_err(map)?;
-    if let Some((l, c)) = top {
-        match unsigned(l).zip(u32::try_from(c).ok()) {
-            Some((l, c)) if clock >= (ClockState { l, c }) => {}
-            _ => return Err(StoreError::Corrupted(Damage::ClockState)),
-        }
+    if let Some((l, c)) = top
+        && clock_of(l, c).is_none_or(|top| clock < top)
+    {
+        return Err(StoreError::Corrupted(Damage::ClockState));
     }
     let device = DeviceId(device);
     Ok(Some((device, check(&tx, device, checked)?)))
@@ -296,42 +299,27 @@ fn check_stored(tx: &Transaction, device: DeviceId, from: i64) -> Result<(), Sto
     if let Some(pos) = orphan {
         return Err(bad(pos));
     }
-    let pair = tx
+    let pair: Option<i64> = tx
         .query_row(
-            "SELECT module, category, id, field, l, c FROM writes w WHERE a = ?1 AND pos > ?2
+            "SELECT pos FROM writes w WHERE a = ?1 AND pos > ?2
              AND EXISTS (SELECT 1 FROM writes o WHERE o.module = w.module AND o.category = w.category
                AND o.id = w.id AND o.field = w.field AND o.l = w.l AND o.c = w.c AND o.a = w.a
                AND o.pos <> w.pos) LIMIT 1",
             (&device.0[..], from),
-            |r| {
-                Ok((
-                    [r.get::<_, Vec<u8>>(0)?, r.get(1)?, r.get(2)?, r.get(3)?],
-                    r.get::<_, i64>(4)?,
-                    r.get::<_, i64>(5)?,
-                ))
-            },
+            |r| r.get(0),
         )
         .optional()
         .map_err(map)?;
-    let Some(([module, category, id, field], l, c)) = pair else {
+    let Some(pos) = pair else {
         return Ok(());
     };
-    // Decoded writes passed `validate`: identifiers are UTF-8, `l`/`c` in range.
-    let utf8 = |b| text(b).unwrap_or_default();
-    let stamp = stamp_of(l, c, device.0.to_vec());
-    let record = RecordId {
-        module: utf8(module),
-        category: utf8(category),
-        id: utf8(id),
-    };
-    let kind = match utf8(field) {
-        f if f.is_empty() => TargetKind::Delete,
-        f => TargetKind::Field(Field(f)),
-    };
-    Err(StoreError::Corrupted(Damage::LocalIdentityPair {
-        target: Box::new(Target { record, kind }),
-        stamp: stamp.ok_or(StoreError::Corrupted(Damage::Layout))?,
-    }))
+    match load(tx, "WHERE pos = ?1", [pos])?.pop() {
+        Some((_, w)) => Err(StoreError::Corrupted(Damage::LocalIdentityPair {
+            target: Box::new(w.target()),
+            stamp: w.stamp,
+        })),
+        None => Err(bad(pos)),
+    }
 }
 
 /// WAL switch at every open (no-op when already WAL; plan R-9, F-21).
@@ -508,30 +496,13 @@ fn load_record(tx: &Transaction, r: &RecordId) -> Result<Vec<Write>, StoreError>
     Ok(rows.into_iter().map(|(_, w)| w).collect())
 }
 
-/// Log built from stored writes (read paths).
-fn log_of(device: DeviceId, writes: &[Write]) -> Result<Log, StoreError> {
-    let mut log = Log::new(device);
-    log.merge(writes)
-        .map_err(|_| StoreError::Corrupted(Damage::StoredWrite { position: None }))?;
-    match log.anomalies().into_iter().find(|a| a.stamp.a == device) {
-        Some(a) => Err(StoreError::Corrupted(Damage::LocalIdentityPair {
-            target: Box::new(a.target),
-            stamp: a.stamp,
-        })),
-        None => Ok(log),
-    }
-}
-
 fn clock(tx: &Transaction) -> Result<ClockState, StoreError> {
     let (l, c): (i64, i64) = tx
         .query_row("SELECT clock_l, clock_c FROM device", [], |r| {
             Ok((r.get(0)?, r.get(1)?))
         })
         .map_err(|_| StoreError::Corrupted(Damage::ClockState))?;
-    unsigned(l)
-        .zip(u32::try_from(c).ok())
-        .map(|(l, c)| ClockState { l, c })
-        .ok_or(StoreError::Corrupted(Damage::ClockState))
+    clock_of(l, c).ok_or(StoreError::Corrupted(Damage::ClockState))
 }
 
 fn insert(tx: &Transaction, w: &Write) -> Result<(), StoreError> {
@@ -539,13 +510,10 @@ fn insert(tx: &Transaction, w: &Write) -> Result<(), StoreError> {
         Change::Field { name, value } => (name.0.as_bytes(), Some(&value.0)),
         Change::Delete => (b"", None),
     };
-    // Exhaustive: a new `Author` must get a code here and in `AUTHORS`.
-    let author: i64 = match w.author {
-        Author::CliUser => 0,
-        Author::UiUser => 1,
-        Author::Assistant => 2,
-        Author::System => 3,
-    };
+    let author = AUTHORS
+        .iter()
+        .position(|a| *a == w.author)
+        .expect("every `Author` is in `AUTHORS`") as i64;
     tx.prepare_cached(
         "INSERT INTO writes (module, category, id, field, value, l, c, a, author)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
@@ -630,43 +598,36 @@ impl SqliteStore {
 
     /// Runs `f` in one transaction (`IMMEDIATE` for writes), commits on `Ok`, rolls back otherwise.
     /// The first `Corrupted` poisons the handle (RG-ST02-7.2).
-    fn exec<T>(
+    fn exec<T, E>(
         &self,
         behavior: TransactionBehavior,
-        f: impl FnOnce(&Transaction) -> Result<T, ApplyError>,
-    ) -> Result<T, ApplyError> {
+        f: impl FnOnce(&Transaction) -> Result<T, E>,
+    ) -> Result<T, E>
+    where
+        E: From<StoreError> + Into<ApplyError> + Clone,
+    {
         self.check_poison()?;
         let mut conn = self.conn.borrow_mut();
         let out = Transaction::new(&mut conn, behavior)
-            .map_err(|e| ApplyError::Store(map(e)))
+            .map_err(|e| E::from(map(e)))
             .and_then(|tx| {
                 let v = f(&tx)?;
-                tx.commit().map_err(|e| ApplyError::Store(map(e)))?;
+                tx.commit().map_err(|e| E::from(map(e)))?;
                 Ok(v)
             });
-        if let Err(ApplyError::Store(StoreError::Corrupted(d))) = &out {
-            *self.poisoned.borrow_mut() = Some(d.clone());
+        if let Err(e) = &out
+            && let ApplyError::Store(StoreError::Corrupted(d)) = e.clone().into()
+        {
+            *self.poisoned.borrow_mut() = Some(d);
         }
         out
-    }
-
-    fn run<T>(
-        &self,
-        behavior: TransactionBehavior,
-        f: impl FnOnce(&Transaction) -> Result<T, StoreError>,
-    ) -> Result<T, StoreError> {
-        match self.exec(behavior, |tx| Ok(f(tx)?)) {
-            Ok(v) => Ok(v),
-            Err(ApplyError::Store(e)) => Err(e),
-            Err(ApplyError::Rejected(_)) => unreachable!("no rejection here"),
-        }
     }
 
     fn read<T>(
         &self,
         f: impl FnOnce(&Transaction) -> Result<T, StoreError>,
     ) -> Result<T, StoreError> {
-        self.run(TransactionBehavior::Deferred, f)
+        self.exec(TransactionBehavior::Deferred, f)
     }
 }
 
@@ -714,12 +675,19 @@ impl Store for SqliteStore {
     }
 
     async fn writes_of(&self, record: &RecordId) -> Result<Vec<Write>, StoreError> {
-        self.read(|tx| Ok(log_of(self.device, &load_record(tx, record)?)?.writes()))
+        self.read(|tx| {
+            let writes = load_record(tx, record)?;
+            Ok(rebuild(self.device, clock(tx)?, &writes)
+                .map_err(StoreError::Corrupted)?
+                .writes())
+        })
     }
 
     async fn state(&self, record: &RecordId) -> Result<Option<RecordState>, StoreError> {
         self.read(|tx| {
-            Ok(log_of(self.device, &load_record(tx, record)?)?
+            let writes = load_record(tx, record)?;
+            Ok(rebuild(self.device, clock(tx)?, &writes)
+                .map_err(StoreError::Corrupted)?
                 .projection()
                 .remove(record))
         })
@@ -737,7 +705,8 @@ impl Store for SqliteStore {
                 (module.as_bytes(), category.as_bytes()),
             )?;
             let writes: Vec<Write> = rows.into_iter().map(|(_, w)| w).collect();
-            Ok(log_of(self.device, &writes)?
+            Ok(rebuild(self.device, clock(tx)?, &writes)
+                .map_err(StoreError::Corrupted)?
                 .projection()
                 .into_iter()
                 .collect())
@@ -754,7 +723,7 @@ impl Store for SqliteStore {
     }
 
     async fn advance_watermark(&self, peer: DeviceId, to: Watermark) -> Result<(), StoreError> {
-        self.run(TransactionBehavior::Immediate, |tx| {
+        self.exec(TransactionBehavior::Immediate, |tx| {
             let to = mark(tx, peer)?.map_or(to, |m| m.max(to));
             let mut b = to.0.to_be_bytes().to_vec();
             b.extend(to.1.to_be_bytes());
@@ -784,6 +753,44 @@ mod tests {
 
     fn is_engine(e: StoreError) -> bool {
         matches!(e, StoreError::Corrupted(Damage::Engine(_)))
+    }
+
+    /// Exhaustive on purpose: a new `Author` fails to compile here, then fails until it is in `AUTHORS`.
+    fn code(a: Author) -> usize {
+        match a {
+            Author::CliUser => 0,
+            Author::UiUser => 1,
+            Author::Assistant => 2,
+            Author::System => 3,
+        }
+    }
+
+    #[test]
+    fn every_author_round_trips() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(DDL).unwrap();
+        let tx = conn.transaction().unwrap();
+        for (i, a) in AUTHORS.into_iter().enumerate() {
+            assert_eq!(AUTHORS[code(a)], a);
+            let w = Write {
+                record: RecordId {
+                    module: "m".into(),
+                    category: "c".into(),
+                    id: i.to_string(),
+                },
+                change: Change::Delete,
+                stamp: Stamp {
+                    l: 1,
+                    c: i as u32,
+                    a: DeviceId([1; 16]),
+                },
+                seen: Seen::new(),
+                author: a,
+            };
+            insert(&tx, &w).unwrap();
+            let got = load(&tx, "WHERE pos = ?1", [tx.last_insert_rowid()]).unwrap();
+            assert_eq!(got.into_iter().map(|(_, w)| w).collect::<Vec<_>>(), [w]);
+        }
     }
 
     #[test]
