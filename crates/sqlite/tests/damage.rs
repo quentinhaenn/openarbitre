@@ -380,7 +380,7 @@ fn k_below_stamp_after_open_is_found_by_reads() {
     {
         let (dir, path) = build("dmg-k-read");
         let (_, sql, want) = case(&path, "K below stamp");
-        let store = open(&path).unwrap();
+        let store = open(&path);
         raw(&path, &sql);
         expect_corrupted(run(&store).expect_err(op), &want, op);
         let _ = std::fs::remove_dir_all(dir);
