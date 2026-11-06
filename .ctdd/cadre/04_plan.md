@@ -718,20 +718,22 @@ Durées estimées (minutes) et cumul dans la voie, **avant** recalibrage. Ce ne 
 | ST-15b | M | moy. | 130 | 1735 | | | | | | | | | | |
 | *repli : ST-17 au lieu de S3-V, ST-10, ST-15b* | L | forte | 210 | *1590* | | | | | | | | | | |
 
-### Jalons (sans date ; datés au recalibrage)
+### Jalons (datés au recalibrage du 2026-11-06)
 
-| Jalon | Fin de | Voie, cumul estimé |
-|---|---|---|
-| Socle posé, **recalibrage** | ST-04 | Socle, soirée 4 |
-| **Démo decision diff** (« 3 violations ») | ST-22 | D, 210 |
-| Decision diff en CI | ST-24 | D, 470 |
-| Planning sur CLI et assistant, **sur agenda simulé** (F-35) | ST-09 (avec ST-07) | P, 520 |
-| Recalcul du matin outil fermé, **sur agenda simulé ; ne place encore rien** (F-35) | ST-11 | P, 715 |
-| Planning complet sur simulateur (semaine, questions, blocs, déplacements) | ST-16 | P, 1380 |
-| **Planning sur agenda réel** — la valeur quotidienne annoncée (F-35) | ST-15b (Google) ou ST-17 (CalDAV) | P, 1735 ou 1590 |
-| **Decision diff complet** | ST-32 | D, 1600 |
-| Synchro entre deux ordinateurs | ST-19 | M, 420 après l'ouverture de M |
-| **Téléphone** (consultation puis action) | ST-20, ST-21 | M, 790 et 920 après l'ouverture de M |
+| Jalon | Fin de | Voie, cumul estimé | Soirée | Date |
+|---|---|---|---|---|
+| Socle posé, **recalibrage** | ST-04 | Socle, soirée 4 | — | 06/11 |
+| **Démo decision diff** (« 3 violations ») | ST-22 | D, 210 | 3 | 09/11 |
+| Decision diff en CI | ST-24 | D, 470 | 7 | 13/11 |
+| Planning sur CLI et assistant, **sur agenda simulé** (F-35) | ST-09 (avec ST-07) | P, 520 | 9 | 15/11 |
+| Recalcul du matin outil fermé, **sur agenda simulé ; ne place encore rien** (F-35) | ST-11 | P, 715 | 12 | 18/11 |
+| Planning complet sur simulateur (semaine, questions, blocs, déplacements) | ST-16 | P, 1380 | 23 | 29/11 |
+| **Planning sur agenda réel** — la valeur quotidienne annoncée (F-35) | ST-15b (Google) ou ST-17 (CalDAV) | P, 1735 ou 1590 | 27 | 03/12 |
+| **Decision diff complet** | ST-32 | D, 1600 | 22 | 28/11 |
+| Synchro entre deux ordinateurs | ST-19 | M, 420 après l'ouverture de M | 15 | 21/11 |
+| **Téléphone** (consultation puis action) | ST-20, ST-21 | M, 790 et 920 après l'ouverture de M | 27 et 29 | 03/12 et 05/12 |
+
+Valeurs retenues (arbitrage de Quentin, 2026-11-06) : seuil de pause 30 min, `k_m` = 1,89, `k_a` = 1,67, `f` = 0,28, **N = 2**, **budget 4,8 points par soirée**, rythme d'une soirée par jour (week-end compris), soirée 1 = 07/11. Mesures **reconstruites** depuis les transcripts, faute d'horodatages G-4 (F-40 non tenue) : détail, sensibilité et fiabilité dans `recalibration_measures.md`. La ligne agenda réel suit la voie Google (S3 : Quentin est admin du Workspace, pas de délai d'admin) ; ST-17 en repli finirait soirée 25.
 
 ### Recalibrage après ST-04 (F-24, F-25)
 

@@ -26,3 +26,11 @@ Placed into `04_plan.md` at the recalibration after ST-04. Each entry is a raw n
 **Placement.** Mainly the planning module: PRs become items of the sorted stack, the graph is a third view next to the stack and the calendar, enabled by a generic "blocks" relation between items. Decision diff supplies zone criticality. Two modules, so the 10-interview guard does not apply.
 
 **Open at placement time.** Source of customer urgency (which tracker first), default weights, the threshold for "too close", the forge API used to read PRs (GitHub first).
+
+## BL-2: several calendars and several accounts
+
+**Raised by Quentin, 2026-11-06.**
+
+**Need.** Planning reads and writes more than one calendar, possibly from more than one account (e.g. a personal Google account and a Workspace account), and places items across them.
+
+**Placement.** Planning module, calendar adapters (ST-15b Google, ST-17 CalDAV). To check at placement time: what the specs assume today (one account per adapter?), where conflicts between calendars are resolved, how credentials are stored per account.
