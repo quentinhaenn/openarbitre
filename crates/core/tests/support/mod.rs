@@ -32,13 +32,6 @@ pub fn record(id: &str) -> RecordId {
     }
 }
 
-pub fn field(name: &str, value: &str) -> Change {
-    Change::Field {
-        name: Field(name.into()),
-        value: FieldValue(value.as_bytes().to_vec()),
-    }
-}
-
 pub fn kind(name: &str) -> TargetKind {
     TargetKind::Field(Field(name.into()))
 }
@@ -54,6 +47,45 @@ pub fn write(record: RecordId, change: Change, stamp: Stamp) -> Write {
     }
 }
 
+/// Rank of a write `(stamp, target, content)` (A-3).
+pub fn rank(w: &Write) -> (Stamp, Target, Option<FieldValue>, Seen, Author) {
+    let value = match &w.change {
+        Change::Field { value, .. } => Some(value.clone()),
+        Change::Delete => None,
+    };
+    (w.stamp, w.target(), value, w.seen.clone(), w.author)
+}
+
+/// Sort key of a conflict (A-4).
+pub fn conflict_key(k: &Conflict) -> impl Ord + use<> {
+    (
+        k.record.clone(),
+        k.field.clone(),
+        k.retained.stamp,
+        k.discarded.stamp,
+        rank(&k.retained),
+        rank(&k.discarded),
+    )
+}
+
+/// What convergence compares: projection, discarded writes, conflicts.
+pub fn outputs_of(x: &Log) -> (Projection, Vec<Write>, Vec<Conflict>) {
+    (x.projection(), x.discarded(), x.conflicts())
+}
+
+pub fn s(x: &str) -> Value {
+    Value::Str(x.into())
+}
+
+pub fn obj(pairs: &[(&str, Value)]) -> Value {
+    Value::Object(
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect(),
+    )
+}
+
 #[cfg(feature = "sim")]
 #[allow(unused_imports)]
 pub use sim::*;
@@ -63,7 +95,7 @@ pub use sim::*;
 mod sim {
     use std::collections::{BTreeMap, BTreeSet};
 
-    use super::{dev, field, record};
+    use super::{conflict_key, dev, rank, record};
     use arbitre_core::*;
     use proptest::prelude::*;
 
@@ -220,7 +252,9 @@ mod sim {
                     }
                     let change = match kind {
                         2 => Change::Delete,
-                        v => field(["f1", "f2"][*v as usize], ["a", "b"][*value as usize]),
+                        v => {
+                            Change::field(["f1", "f2"][*v as usize], [b"a", b"b"][*value as usize])
+                        }
                     };
                     let known = identities(&device.log);
                     let pt = device.clock.now();
@@ -368,14 +402,6 @@ mod sim {
             }
     }
 
-    fn rank(w: &Write) -> (Stamp, Target, Option<FieldValue>, Seen, Author) {
-        let value = match &w.change {
-            Change::Field { value, .. } => Some(value.clone()),
-            Change::Delete => None,
-        };
-        (w.stamp, w.target(), value, w.seen.clone(), w.author)
-    }
-
     /// Oracle (F-2): conflicts of `s` by brute force over all pairs, from the ledger alone.
     /// `has_seen*(w, x) ⇔ ∃ y ∈ known(w), target(y) = target(x) ∧ stamp(y) ≥ stamp(x)`; normalized and sorted (A-4).
     pub fn expected_conflicts(s: &[Write], ledger: &Ledger) -> Vec<Conflict> {
@@ -403,17 +429,7 @@ mod sim {
                 });
             }
         }
-        let cle = |k: &Conflict| {
-            (
-                k.record.clone(),
-                k.field.clone(),
-                k.retained.stamp,
-                k.discarded.stamp,
-                rank(&k.retained),
-                rank(&k.discarded),
-            )
-        };
-        conflicts.sort_by_key(cle);
+        conflicts.sort_by_key(conflict_key);
         conflicts
     }
 }

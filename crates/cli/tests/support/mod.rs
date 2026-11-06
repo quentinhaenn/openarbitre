@@ -8,13 +8,13 @@ pub mod network;
 pub mod surfaces;
 
 use std::ffi::OsString;
-use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::task::{Context, Poll, Waker};
 
-use arbitre_core::{Author, Change, DeviceId, LocalChange, Position, RecordId, Store, Write};
+use arbitre_core::{
+    Author, Change, DeviceId, LocalChange, Position, RecordId, Store, Write, ready,
+};
 use arbitre_sqlite::{Options, SqliteStore};
 
 /// Fresh empty directory under the system temp dir.
@@ -115,12 +115,25 @@ pub fn shown(rendered: &str, key: &str, text: &str) -> bool {
     })
 }
 
-pub fn ready<F: Future>(f: F) -> F::Output {
-    let mut f = std::pin::pin!(f);
-    match f.as_mut().poll(&mut Context::from_waker(Waker::noop())) {
-        Poll::Ready(v) => v,
-        Poll::Pending => panic!("store future pending"),
+/// The test store of `home`: `<home>/arbitre.db`.
+pub fn store(home: &Path) -> PathBuf {
+    home.join("arbitre.db")
+}
+
+/// `args --store <path>`, ± `--json`, with `HOME = home`.
+pub fn on_store(home: &Path, path: &Path, args: &[&str], json: bool) -> Run {
+    let s = path.display().to_string();
+    let mut v: Vec<&str> = args.to_vec();
+    v.extend(["--store", s.as_str()]);
+    if json {
+        v.push("--json");
     }
+    arbitre(home, &v)
+}
+
+/// `args --store <home>/arbitre.db`, ± `--json`.
+pub fn on_home(home: &Path, args: &[&str], json: bool) -> Run {
+    on_store(home, &store(home), args, json)
 }
 
 /// A store at `path` holding two writes; handle dropped.

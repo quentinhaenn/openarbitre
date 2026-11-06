@@ -48,47 +48,43 @@ fn conflict(retained: &Write, discarded: &Write, f: &str) -> Conflict {
     }
 }
 
-fn outputs_of(x: &Log) -> (Projection, Vec<Write>, Vec<Conflict>) {
-    (x.projection(), x.discarded(), x.conflicts())
-}
-
 // ---- T-5: US-1 matrix ----
 
 #[test]
 fn us1_case1_different_fields_two_devices() {
-    let wa = put(&mut log_of(A), 10, "d", field("title", "v1"));
-    let wb = put(&mut log_of(B), 12, "d", field("due", "v2"));
+    let wa = put(&mut log_of(A), 10, "d", Change::field("title", b"v1"));
+    let wb = put(&mut log_of(B), 12, "d", Change::field("due", b"v2"));
     let x = received(&[wa, wb]);
-    assert_eq!(value_of(&x, "d", "title"), field("title", "v1"));
-    assert_eq!(value_of(&x, "d", "due"), field("due", "v2"));
+    assert_eq!(value_of(&x, "d", "title"), Change::field("title", b"v1"));
+    assert_eq!(value_of(&x, "d", "due"), Change::field("due", b"v2"));
     assert_eq!(status(&x, "d"), Status::Present);
     assert!(x.discarded().is_empty());
 }
 
 #[test]
 fn us1_case2_same_field_different_stamps() {
-    let wa = put(&mut log_of(A), 10, "d", field("f", "v1"));
-    let wb = put(&mut log_of(B), 12, "d", field("f", "v2"));
+    let wa = put(&mut log_of(A), 10, "d", Change::field("f", b"v1"));
+    let wb = put(&mut log_of(B), 12, "d", Change::field("f", b"v2"));
     let x = received(&[wa.clone(), wb]);
-    assert_eq!(value_of(&x, "d", "f"), field("f", "v2"));
+    assert_eq!(value_of(&x, "d", "f"), Change::field("f", b"v2"));
     assert_eq!(x.discarded(), vec![wa]);
 }
 
 #[test]
 fn us1_case3_same_l_c_tie_broken_by_device() {
-    let wa = put(&mut log_of(A), 10, "d", field("f", "v1"));
-    let wb = put(&mut log_of(B), 10, "d", field("f", "v2"));
+    let wa = put(&mut log_of(A), 10, "d", Change::field("f", b"v1"));
+    let wb = put(&mut log_of(B), 10, "d", Change::field("f", b"v2"));
     assert_eq!((wa.stamp.l, wa.stamp.c), (wb.stamp.l, wb.stamp.c));
     for batch in [[wa.clone(), wb.clone()], [wb.clone(), wa.clone()]] {
         let x = received(&batch);
-        assert_eq!(value_of(&x, "d", "f"), field("f", "v2"));
+        assert_eq!(value_of(&x, "d", "f"), Change::field("f", b"v2"));
         assert_eq!(x.discarded(), vec![wa.clone()]);
     }
 }
 
 #[test]
 fn us1_case7_empty_batch() {
-    let mut x = received(&[put(&mut log_of(A), 10, "d", field("f", "v1"))]);
+    let mut x = received(&[put(&mut log_of(A), 10, "d", Change::field("f", b"v1"))]);
     let before = (outputs_of(&x), x.anomalies());
     assert_eq!(x.merge(&[]).unwrap(), Report::default());
     assert_eq!((outputs_of(&x), x.anomalies()), before);
@@ -98,21 +94,26 @@ fn us1_case7_empty_batch() {
 fn us1_case8_ten_thousand_sequential_writes() {
     let mut a = log_of(A);
     for k in 0..10_000u64 {
-        put(&mut a, k / 3, "d", field("f", &k.to_string()));
+        put(
+            &mut a,
+            k / 3,
+            "d",
+            Change::field("f", k.to_string().as_bytes()),
+        );
     }
-    assert_eq!(value_of(&a, "d", "f"), field("f", "9999"));
+    assert_eq!(value_of(&a, "d", "f"), Change::field("f", b"9999"));
     assert_eq!(a.discarded().len(), 9_999);
 }
 
 #[test]
 fn us1_case10_identity_collision() {
-    let w1 = write(record("d"), field("f", "v1"), stamp(10, 0, A));
-    let w2 = write(record("d"), field("f", "v2"), stamp(10, 0, A));
+    let w1 = write(record("d"), Change::field("f", b"v1"), stamp(10, 0, A));
+    let w2 = write(record("d"), Change::field("f", b"v2"), stamp(10, 0, A));
     let mut x = received(std::slice::from_ref(&w1));
     assert!(x.anomalies().is_empty());
     let report = x.merge(std::slice::from_ref(&w2)).unwrap();
     assert_eq!(x.writes(), vec![w1.clone(), w2.clone()]);
-    assert_eq!(value_of(&x, "d", "f"), field("f", "v2"));
+    assert_eq!(value_of(&x, "d", "f"), Change::field("f", b"v2"));
     assert_eq!(x.discarded(), vec![w1.clone()]);
     assert_eq!(report.new_anomalies.len(), 1);
     assert_eq!(x.anomalies().len(), 1);
@@ -124,10 +125,10 @@ fn us1_case10_identity_collision() {
 
 #[test]
 fn us1_case11_malformed_batch_rejected_whole() {
-    let mut x = received(&[put(&mut log_of(A), 10, "d", field("f", "v1"))]);
+    let mut x = received(&[put(&mut log_of(A), 10, "d", Change::field("f", b"v1"))]);
     let before = x.clone();
-    let good = put(&mut log_of(B), 20, "d", field("f", "v2"));
-    let bad = write(record("d"), field("", "v3"), stamp(21, 0, B));
+    let good = put(&mut log_of(B), 20, "d", Change::field("f", b"v2"));
+    let bad = write(record("d"), Change::field("", b"v3"), stamp(21, 0, B));
     assert_eq!(
         x.merge(&[good, bad]),
         Err(BatchError {
@@ -143,26 +144,26 @@ fn us1_case11_malformed_batch_rejected_whole() {
 #[test]
 fn us3_case1_deletion_then_concurrent_edit() {
     let s = put(&mut log_of(A), 10, "d", Change::Delete);
-    let w = put(&mut log_of(B), 12, "d", field("f", "v"));
+    let w = put(&mut log_of(B), 12, "d", Change::field("f", b"v"));
     let x = received(&[s.clone(), w]);
     assert_eq!(status(&x, "d"), Status::Present);
-    assert_eq!(value_of(&x, "d", "f"), field("f", "v"));
+    assert_eq!(value_of(&x, "d", "f"), Change::field("f", b"v"));
     assert_eq!(x.discarded(), vec![s]);
 }
 
 #[test]
 fn us3_case2_edit_then_concurrent_deletion() {
-    let w = put(&mut log_of(A), 10, "d", field("f", "v"));
+    let w = put(&mut log_of(A), 10, "d", Change::field("f", b"v"));
     let s = put(&mut log_of(B), 12, "d", Change::Delete);
     let x = received(&[w, s.clone()]);
     assert_eq!(status(&x, "d"), Status::Deleted(s));
-    assert_eq!(value_of(&x, "d", "f"), field("f", "v"));
+    assert_eq!(value_of(&x, "d", "f"), Change::field("f", b"v"));
     assert!(x.discarded().is_empty());
 }
 
 #[test]
 fn us3_case3_sequential_deletion() {
-    let w = put(&mut log_of(A), 10, "d", field("f", "v"));
+    let w = put(&mut log_of(A), 10, "d", Change::field("f", b"v"));
     let mut b = received(&[w]);
     let s = put(&mut b, 11, "d", Change::Delete);
     assert_eq!(status(&b, "d"), Status::Deleted(s));
@@ -172,7 +173,7 @@ fn us3_case3_sequential_deletion() {
 fn us3_case4_sequential_resurrection() {
     let s = put(&mut log_of(A), 10, "d", Change::Delete);
     let mut b = received(std::slice::from_ref(&s));
-    put(&mut b, 11, "d", field("f", "v"));
+    put(&mut b, 11, "d", Change::field("f", b"v"));
     assert_eq!(status(&b, "d"), Status::Present);
     assert_eq!(b.discarded(), vec![s]);
 }
@@ -180,7 +181,7 @@ fn us3_case4_sequential_resurrection() {
 #[test]
 fn us3_case5_same_l_c_deletion_vs_field() {
     let s = put(&mut log_of(A), 10, "d", Change::Delete);
-    let w = put(&mut log_of(B), 10, "d", field("f", "v"));
+    let w = put(&mut log_of(B), 10, "d", Change::field("f", b"v"));
     for batch in [[s.clone(), w.clone()], [w.clone(), s.clone()]] {
         assert_eq!(status(&received(&batch), "d"), Status::Present);
     }
@@ -198,13 +199,13 @@ fn us3_case6_concurrent_double_deletion() {
 #[test]
 fn us3_case7_resurrection_all_fields() {
     let mut a = log_of(A);
-    let f1a = put(&mut a, 5, "d", field("f1", "a"));
-    put(&mut a, 6, "d", field("f2", "b"));
+    let f1a = put(&mut a, 5, "d", Change::field("f1", b"a"));
+    put(&mut a, 6, "d", Change::field("f2", b"b"));
     let s = put(&mut a, 8, "d", Change::Delete);
-    put(&mut a, 9, "d", field("f1", "c"));
+    put(&mut a, 9, "d", Change::field("f1", b"c"));
     assert_eq!(status(&a, "d"), Status::Present);
-    assert_eq!(value_of(&a, "d", "f1"), field("f1", "c"));
-    assert_eq!(value_of(&a, "d", "f2"), field("f2", "b"));
+    assert_eq!(value_of(&a, "d", "f1"), Change::field("f1", b"c"));
+    assert_eq!(value_of(&a, "d", "f2"), Change::field("f2", b"b"));
     assert_eq!(a.discarded(), vec![s, f1a]);
 }
 
@@ -220,9 +221,9 @@ fn us3_case9_deletion_alone() {
 fn us2_case9_full_discarded_write() {
     let wa = Write {
         author: Author::Assistant,
-        ..put(&mut log_of(A), 10, "d", field("f", "v1"))
+        ..put(&mut log_of(A), 10, "d", Change::field("f", b"v1"))
     };
-    let wb = put(&mut log_of(B), 12, "d", field("f", "v2"));
+    let wb = put(&mut log_of(B), 12, "d", Change::field("f", b"v2"));
     let discarded = &received(&[wa.clone(), wb]).discarded()[0];
     assert_eq!(discarded, &wa);
     assert_eq!(discarded.device(), dev(A));
@@ -233,10 +234,10 @@ fn us2_case9_full_discarded_write() {
 #[test]
 fn write_computes_seen_per_target_kind() {
     let mut a = log_of(A);
-    let w1 = put(&mut a, 1, "d", field("f1", "a"));
-    let w2 = put(&mut a, 2, "d", field("f2", "b"));
+    let w1 = put(&mut a, 1, "d", Change::field("f1", b"a"));
+    let w2 = put(&mut a, 2, "d", Change::field("f2", b"b"));
     let s = put(&mut a, 3, "d", Change::Delete);
-    let w4 = put(&mut a, 4, "d", field("f1", "c"));
+    let w4 = put(&mut a, 4, "d", Change::field("f1", b"c"));
     assert!(w1.seen.is_empty());
     assert!(w2.seen.is_empty());
     assert_eq!(
@@ -252,31 +253,45 @@ fn write_computes_seen_per_target_kind() {
 #[test]
 fn write_ignores_other_records() {
     let mut a = log_of(A);
-    put(&mut a, 1, "other", field("f", "a"));
+    put(&mut a, 1, "other", Change::field("f", b"a"));
     put(&mut a, 2, "other", Change::Delete);
-    assert!(put(&mut a, 3, "d", field("f", "b")).seen.is_empty());
+    assert!(
+        put(&mut a, 3, "d", Change::field("f", b"b"))
+            .seen
+            .is_empty()
+    );
 }
 
 #[test]
 fn write_empty_identifier_consumes_no_stamp() {
     let mut a = log_of(A);
-    assert_eq!(put(&mut a, 10, "d", field("f", "a")).stamp, stamp(10, 0, A));
+    assert_eq!(
+        put(&mut a, 10, "d", Change::field("f", b"a")).stamp,
+        stamp(10, 0, A)
+    );
     let before = a.clone();
     assert_eq!(
-        a.write(10, record(""), field("f", "b"), Author::System),
+        a.write(10, record(""), Change::field("f", b"b"), Author::System),
         Err(WriteError::Invalid(Reason::EmptyIdentifier))
     );
     assert_eq!(a, before);
-    assert_eq!(put(&mut a, 10, "d", field("f", "c")).stamp, stamp(10, 1, A));
+    assert_eq!(
+        put(&mut a, 10, "d", Change::field("f", b"c")).stamp,
+        stamp(10, 1, A)
+    );
 }
 
 #[test]
 fn write_clock_exhausted() {
     let mut a = log_of(A);
-    a.merge(&[write(record("d"), field("f", "v"), stamp(10, u32::MAX, B))])
-        .unwrap();
+    a.merge(&[write(
+        record("d"),
+        Change::field("f", b"v"),
+        stamp(10, u32::MAX, B),
+    )])
+    .unwrap();
     assert_eq!(
-        a.write(10, record("d"), field("f", "w"), Author::System),
+        a.write(10, record("d"), Change::field("f", b"w"), Author::System),
         Err(WriteError::ClockExhausted)
     );
 }
@@ -284,11 +299,11 @@ fn write_clock_exhausted() {
 #[test]
 fn merge_invalid_batch_log_and_clock_unchanged() {
     let mut a = log_of(A);
-    put(&mut a, 10, "d", field("f", "a"));
+    put(&mut a, 10, "d", Change::field("f", b"a"));
     let before = a.clone();
     let batch = [
-        write(record("d"), field("f", "b"), stamp(1_000, 0, B)),
-        write(record("d"), field("f", "c"), stamp(L_MAX, 0, B)),
+        write(record("d"), Change::field("f", b"b"), stamp(1_000, 0, B)),
+        write(record("d"), Change::field("f", b"c"), stamp(L_MAX, 0, B)),
     ];
     assert_eq!(
         a.merge(&batch),
@@ -298,26 +313,29 @@ fn merge_invalid_batch_log_and_clock_unchanged() {
         })
     );
     assert_eq!(a, before);
-    assert_eq!(put(&mut a, 10, "d", field("f", "d")).stamp, stamp(10, 1, A));
+    assert_eq!(
+        put(&mut a, 10, "d", Change::field("f", b"d")).stamp,
+        stamp(10, 1, A)
+    );
 }
 
 #[test]
 fn merge_valid_batch_clock_adopts_maximum() {
     let mut a = log_of(A);
     let batch = [
-        write(record("d"), field("f", "b"), stamp(500, 4, B)),
-        write(record("e"), field("f", "c"), stamp(900, 2, C)),
+        write(record("d"), Change::field("f", b"b"), stamp(500, 4, B)),
+        write(record("e"), Change::field("f", b"c"), stamp(900, 2, C)),
     ];
     a.merge(&batch).unwrap();
-    assert!(put(&mut a, 10, "d", field("f", "x")).stamp > stamp(900, 2, C));
+    assert!(put(&mut a, 10, "d", Change::field("f", b"x")).stamp > stamp(900, 2, C));
 }
 
 // ---- T-6: conflicts (US-2, US-3 matrices) ----
 
 #[test]
 fn us2_case1_same_field_offline_on_both_sides() {
-    let wa = put(&mut log_of(A), 10, "d", field("f", "v1"));
-    let wb = put(&mut log_of(B), 12, "d", field("f", "v2"));
+    let wa = put(&mut log_of(A), 10, "d", Change::field("f", b"v1"));
+    let wb = put(&mut log_of(B), 12, "d", Change::field("f", b"v2"));
     let mut x = log_of(X);
     let report = x.merge(&[wa.clone(), wb.clone()]).unwrap();
     assert_eq!(x.conflicts(), vec![conflict(&wb, &wa, "f")]);
@@ -328,9 +346,9 @@ fn us2_case1_same_field_offline_on_both_sides() {
 
 #[test]
 fn us2_case2_sequential_overwrite() {
-    let wa = put(&mut log_of(A), 10, "d", field("f", "v1"));
+    let wa = put(&mut log_of(A), 10, "d", Change::field("f", b"v1"));
     let mut b = received(std::slice::from_ref(&wa));
-    let wb = put(&mut b, 11, "d", field("f", "v2"));
+    let wb = put(&mut b, 11, "d", Change::field("f", b"v2"));
     assert!(b.conflicts().is_empty());
     assert!(received(&[wb, wa]).conflicts().is_empty());
 }
@@ -339,11 +357,11 @@ fn us2_case2_sequential_overwrite() {
 fn us2_case3_sequential_overwrite_lagging_receiver() {
     let mut a = log_of(A);
     let mut b = log_of(B);
-    let w0 = put(&mut b, 5, "d", field("f", "v0"));
+    let w0 = put(&mut b, 5, "d", Change::field("f", b"v0"));
     a.merge(&[w0]).unwrap();
-    let wa = put(&mut a, 10, "d", field("f", "v1"));
+    let wa = put(&mut a, 10, "d", Change::field("f", b"v1"));
     b.merge(&[wa]).unwrap();
-    let wb = put(&mut b, 11, "d", field("f", "v2"));
+    let wb = put(&mut b, 11, "d", Change::field("f", b"v2"));
     let report = a.merge(&[wb]).unwrap();
     assert!(report.new_conflicts.is_empty());
     assert!(a.conflicts().is_empty());
@@ -351,8 +369,8 @@ fn us2_case3_sequential_overwrite_lagging_receiver() {
 
 #[test]
 fn us2_case4_concurrent_same_value() {
-    let wa = put(&mut log_of(A), 10, "d", field("f", "v"));
-    let wb = put(&mut log_of(B), 12, "d", field("f", "v"));
+    let wa = put(&mut log_of(A), 10, "d", Change::field("f", b"v"));
+    let wb = put(&mut log_of(B), 12, "d", Change::field("f", b"v"));
     let x = received(&[wa.clone(), wb.clone()]);
     assert_eq!(x.projection()[&record("d")].fields[&Field("f".into())], wb);
     assert_eq!(x.discarded(), vec![wa]);
@@ -361,11 +379,11 @@ fn us2_case4_concurrent_same_value() {
 
 #[test]
 fn us2_case6_three_concurrent_one_conflict_per_pair() {
-    let wa = put(&mut log_of(A), 10, "d", field("f", "v1"));
-    let wb = put(&mut log_of(B), 11, "d", field("f", "v2"));
-    let wc = put(&mut log_of(C), 12, "d", field("f", "v3"));
+    let wa = put(&mut log_of(A), 10, "d", Change::field("f", b"v1"));
+    let wb = put(&mut log_of(B), 11, "d", Change::field("f", b"v2"));
+    let wc = put(&mut log_of(C), 12, "d", Change::field("f", b"v3"));
     let x = received(&[wc.clone(), wa.clone(), wb.clone()]);
-    assert_eq!(value_of(&x, "d", "f"), field("f", "v3"));
+    assert_eq!(value_of(&x, "d", "f"), Change::field("f", b"v3"));
     assert_eq!(x.discarded(), vec![wa.clone(), wb.clone()]);
     assert_eq!(
         x.conflicts(),
@@ -379,9 +397,9 @@ fn us2_case6_three_concurrent_one_conflict_per_pair() {
 
 #[test]
 fn us2_case7_never_synced_peer() {
-    let wp = put(&mut log_of(B), 10, "d", field("f", "v1"));
+    let wp = put(&mut log_of(B), 10, "d", Change::field("f", b"v1"));
     let mut local = log_of(A);
-    let wl = put(&mut local, 20, "d", field("f", "v2"));
+    let wl = put(&mut local, 20, "d", Change::field("f", b"v2"));
     let report = local.merge(std::slice::from_ref(&wp)).unwrap();
     assert_eq!(report.new_conflicts, vec![conflict(&wl, &wp, "f")]);
 }
@@ -389,10 +407,10 @@ fn us2_case7_never_synced_peer() {
 #[test]
 fn us2_case8_replay_same_lists_same_order() {
     let batch = [
-        put(&mut log_of(A), 10, "d", field("f", "v1")),
-        put(&mut log_of(B), 12, "d", field("f", "v2")),
+        put(&mut log_of(A), 10, "d", Change::field("f", b"v1")),
+        put(&mut log_of(B), 12, "d", Change::field("f", b"v2")),
         put(&mut log_of(C), 11, "e", Change::Delete),
-        put(&mut log_of(A), 9, "e", field("g", "x")),
+        put(&mut log_of(A), 9, "e", Change::field("g", b"x")),
     ];
     let (mut x, mut y) = (log_of(X), log_of(X));
     assert_eq!(x.merge(&batch).unwrap(), y.merge(&batch).unwrap());
@@ -401,14 +419,14 @@ fn us2_case8_replay_same_lists_same_order() {
 
 #[test]
 fn us2_case10_sequential_write_after_conflict() {
-    let wa = put(&mut log_of(A), 10, "d", field("f", "v1"));
-    let wb = put(&mut log_of(B), 12, "d", field("f", "v2"));
+    let wa = put(&mut log_of(A), 10, "d", Change::field("f", b"v1"));
+    let wb = put(&mut log_of(B), 12, "d", Change::field("f", b"v2"));
     let mut a = log_of(A);
     a.merge(&[wa.clone(), wb.clone()]).unwrap();
-    let w3 = put(&mut a, 13, "d", field("f", "v3"));
+    let w3 = put(&mut a, 13, "d", Change::field("f", b"v3"));
     let mut x = received(&[wa.clone(), wb.clone()]);
     let report = x.merge(&[w3]).unwrap();
-    assert_eq!(value_of(&x, "d", "f"), field("f", "v3"));
+    assert_eq!(value_of(&x, "d", "f"), Change::field("f", b"v3"));
     assert_eq!(report.new_discarded, vec![wb.clone()]);
     assert!(report.new_conflicts.is_empty());
     assert_eq!(x.conflicts(), vec![conflict(&wb, &wa, "f")]);
@@ -417,7 +435,7 @@ fn us2_case10_sequential_write_after_conflict() {
 #[test]
 fn us3_case1_conflict_retained_field() {
     let s = put(&mut log_of(A), 10, "d", Change::Delete);
-    let w = put(&mut log_of(B), 12, "d", field("f", "v"));
+    let w = put(&mut log_of(B), 12, "d", Change::field("f", b"v"));
     assert_eq!(
         received(&[s.clone(), w.clone()]).conflicts(),
         vec![conflict(&w, &s, "f")]
@@ -426,7 +444,7 @@ fn us3_case1_conflict_retained_field() {
 
 #[test]
 fn us3_case2_conflict_retained_deletion() {
-    let w = put(&mut log_of(A), 10, "d", field("f", "v"));
+    let w = put(&mut log_of(A), 10, "d", Change::field("f", b"v"));
     let s = put(&mut log_of(B), 12, "d", Change::Delete);
     assert_eq!(
         received(&[w.clone(), s.clone()]).conflicts(),
@@ -436,20 +454,20 @@ fn us3_case2_conflict_retained_deletion() {
 
 #[test]
 fn us3_case3_and_4_sequential_no_conflict() {
-    let w = put(&mut log_of(A), 10, "d", field("f", "v"));
+    let w = put(&mut log_of(A), 10, "d", Change::field("f", b"v"));
     let mut b = received(&[w]);
     put(&mut b, 11, "d", Change::Delete);
     assert!(b.conflicts().is_empty());
     let s = put(&mut log_of(A), 10, "e", Change::Delete);
     let mut c = received(&[s]);
-    put(&mut c, 11, "e", field("f", "v"));
+    put(&mut c, 11, "e", Change::field("f", b"v"));
     assert!(c.conflicts().is_empty());
 }
 
 #[test]
 fn us3_case5_same_l_c_deletion_vs_field_in_conflict() {
     let s = put(&mut log_of(A), 10, "d", Change::Delete);
-    let w = put(&mut log_of(B), 10, "d", field("f", "v"));
+    let w = put(&mut log_of(B), 10, "d", Change::field("f", b"v"));
     assert_eq!(
         received(&[s.clone(), w.clone()]).conflicts(),
         vec![conflict(&w, &s, "f")]
@@ -465,9 +483,9 @@ fn us3_case6_double_deletion_no_conflict() {
 
 #[test]
 fn counter_example_f1() {
-    let title = put(&mut log_of(B), 10, "d", field("title", "t"));
+    let title = put(&mut log_of(B), 10, "d", Change::field("title", b"t"));
     let mut a = log_of(A);
-    let due = put(&mut a, 11, "d", field("due", "e"));
+    let due = put(&mut a, 11, "d", Change::field("due", b"e"));
     let s = put(&mut a, 12, "d", Change::Delete);
     assert_eq!(
         received(&[title.clone(), due, s.clone()]).conflicts(),
@@ -479,7 +497,7 @@ fn counter_example_f1() {
 fn case_f12_same_stamp_deletion_and_field() {
     let m = stamp(10, 0, A);
     let s = write(record("d"), Change::Delete, m);
-    let w = write(record("d"), field("f", "v"), m);
+    let w = write(record("d"), Change::field("f", b"v"), m);
     let x = received(&[s.clone(), w.clone()]);
     assert_eq!(status(&x, "d"), Status::Present);
     assert_eq!(x.conflicts(), vec![conflict(&w, &s, "f")]);
@@ -487,8 +505,8 @@ fn case_f12_same_stamp_deletion_and_field() {
 
 #[test]
 fn collision_of_different_values_is_a_conflict() {
-    let w1 = write(record("d"), field("f", "v1"), stamp(10, 0, A));
-    let w2 = write(record("d"), field("f", "v2"), stamp(10, 0, A));
+    let w1 = write(record("d"), Change::field("f", b"v1"), stamp(10, 0, A));
+    let w2 = write(record("d"), Change::field("f", b"v2"), stamp(10, 0, A));
     assert_eq!(
         received(&[w1.clone(), w2.clone()]).conflicts(),
         vec![conflict(&w2, &w1, "f")]
@@ -498,10 +516,10 @@ fn collision_of_different_values_is_a_conflict() {
 #[test]
 fn second_receipt_three_empty_lists() {
     let batch = [
-        put(&mut log_of(A), 10, "d", field("f", "v1")),
-        put(&mut log_of(B), 12, "d", field("f", "v2")),
-        write(record("d"), field("g", "x"), stamp(5, 0, C)),
-        write(record("d"), field("g", "y"), stamp(5, 0, C)),
+        put(&mut log_of(A), 10, "d", Change::field("f", b"v1")),
+        put(&mut log_of(B), 12, "d", Change::field("f", b"v2")),
+        write(record("d"), Change::field("g", b"x"), stamp(5, 0, C)),
+        write(record("d"), Change::field("g", b"y"), stamp(5, 0, C)),
     ];
     let mut x = received(&batch);
     assert_eq!(x.merge(&batch).unwrap(), Report::default());
@@ -511,7 +529,14 @@ fn second_receipt_three_empty_lists() {
 fn us1_case8_ten_thousand_writes_in_one_received_batch() {
     let mut a = log_of(A);
     let batch: Vec<Write> = (0..10_000u64)
-        .map(|k| put(&mut a, k / 3, "d", field("f", &k.to_string())))
+        .map(|k| {
+            put(
+                &mut a,
+                k / 3,
+                "d",
+                Change::field("f", k.to_string().as_bytes()),
+            )
+        })
         .collect();
     let mut x = log_of(X);
     let start = Instant::now();
@@ -529,7 +554,7 @@ fn any_write() -> impl Strategy<Value = Write> {
         let d = ["d0", "d1"][d as usize];
         let change = match v {
             2 => Change::Delete,
-            _ => field(["f1", "f2"][v as usize], ["a", "b"][val as usize]),
+            _ => Change::field(["f1", "f2"][v as usize], [b"a", b"b"][val as usize]),
         };
         write(record(d), change, stamp(l, c, a))
     })
@@ -548,26 +573,6 @@ fn retained_set(x: &Log) -> BTreeSet<Write> {
         }
     }
     r
-}
-
-/// Rank of a write `(stamp, target, content)` (A-3).
-fn rank(w: &Write) -> impl Ord {
-    let value = match &w.change {
-        Change::Field { value, .. } => Some(value.clone()),
-        Change::Delete => None,
-    };
-    (w.stamp, w.target(), value, w.seen.clone(), w.author)
-}
-
-fn conflict_key(k: &Conflict) -> impl Ord {
-    (
-        k.record.clone(),
-        k.field.clone(),
-        k.retained.stamp,
-        k.discarded.stamp,
-        rank(&k.retained),
-        rank(&k.discarded),
-    )
 }
 
 fn discarded_key(w: &Write) -> impl Ord {

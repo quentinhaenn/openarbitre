@@ -3,27 +3,7 @@
 
 mod support;
 
-use std::path::{Path, PathBuf};
-
 use support::*;
-
-fn store(home: &Path) -> PathBuf {
-    home.join("arbitre.db")
-}
-
-fn on_store(home: &Path, path: &Path, args: &[&str], json: bool) -> Run {
-    let s = path.display().to_string();
-    let mut v: Vec<&str> = args.to_vec();
-    v.extend(["--store", s.as_str()]);
-    if json {
-        v.push("--json");
-    }
-    arbitre(home, &v)
-}
-
-fn on(home: &Path, args: &[&str], json: bool) -> Run {
-    on_store(home, &store(home), args, json)
-}
 
 #[test]
 fn one_code_per_category_in_both_modes() {
@@ -38,12 +18,12 @@ fn one_code_per_category_in_both_modes() {
     ];
     for (args, code, category) in cases {
         let home = tmp("codes-table");
-        let r = on(&home, args, false);
+        let r = on_home(&home, args, false);
         assert_eq!(r.code, code, "{args:?}: {}", r.stderr);
         if code != 0 {
             assert_eq!(r.stdout, "", "{args:?}");
         }
-        let r = on(&home, args, true);
+        let r = on_home(&home, args, true);
         assert_eq!(r.code, code, "{args:?} --json: {}", r.stderr);
         let d = doc(&r);
         match category {
@@ -62,11 +42,11 @@ fn one_code_per_category_in_both_modes() {
 fn crash_is_internal_error() {
     // Matrix US-3 row 7, RG-ST03-3.5.
     let home = tmp("codes-panic");
-    let r = on(&home, &["test", "panic"], false);
+    let r = on_home(&home, &["test", "panic"], false);
     assert_eq!(r.code, 3);
     assert_eq!(r.stdout, "");
     assert!(!r.stderr.is_empty());
-    let r = on(&home, &["test", "panic"], true);
+    let r = on_home(&home, &["test", "panic"], true);
     assert_eq!(r.code, 3);
     let (c, n, id) = failure(&doc(&r));
     assert_eq!(
@@ -79,10 +59,10 @@ fn crash_is_internal_error() {
 fn output_mismatch() {
     // Matrix US-4 row 6, RG-ST03-4.5.
     let home = tmp("codes-bad-output");
-    let r = on(&home, &["test", "bad-output"], true);
+    let r = on_home(&home, &["test", "bad-output"], true);
     assert_eq!(r.code, 3);
     assert_eq!(failure(&doc(&r)).2, "output_mismatch");
-    let r = on(&home, &["test", "bad-output"], false);
+    let r = on_home(&home, &["test", "bad-output"], false);
     assert_eq!((r.code, r.stdout.as_str()), (3, ""));
 }
 
@@ -92,7 +72,7 @@ fn write_succeeds_and_changes_the_store() {
     let path = store(&home);
     populate(&path);
     let before = snapshot(&path).0.len();
-    let r = on(&home, &["test", "write", "--key", "k"], true);
+    let r = on_home(&home, &["test", "write", "--key", "k"], true);
     assert_eq!(r.code, 0, "{}", r.stderr);
     assert_eq!(success(&doc(&r))["key"], "k");
     assert_eq!(snapshot(&path).0.len(), before + 1);
@@ -107,7 +87,7 @@ fn failed_mutating_action_changes_nothing() {
             let path = store(&home);
             populate(&path);
             let before = snapshot(&path);
-            let r = on(
+            let r = on_home(
                 &home,
                 &["test", "write", "--key", "k", "--fail", mode],
                 json,
@@ -128,7 +108,7 @@ fn damaged_store_is_corrupted_and_untouched() {
     let home = tmp("codes-damaged");
     let path = store(&home);
     std::fs::write(&path, b"not a store\n").unwrap();
-    let r = on(&home, &["test", "read"], true);
+    let r = on_home(&home, &["test", "read"], true);
     assert_eq!(r.code, 3);
     assert_eq!(failure(&doc(&r)).2, "storage_corrupted");
     assert_eq!(std::fs::read(&path).unwrap(), b"not a store\n");
@@ -143,7 +123,7 @@ fn newer_layout_is_incompatible_and_untouched() {
     let mut bytes = std::fs::read(&path).unwrap();
     bytes[60..64].copy_from_slice(&99u32.to_be_bytes());
     std::fs::write(&path, &bytes).unwrap();
-    let r = on(&home, &["test", "read"], true);
+    let r = on_home(&home, &["test", "read"], true);
     assert_eq!(r.code, 3);
     assert_eq!(failure(&doc(&r)).2, "storage_incompatible_version");
     assert_eq!(std::fs::read(&path).unwrap(), bytes);

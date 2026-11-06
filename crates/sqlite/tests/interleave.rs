@@ -3,14 +3,16 @@
 
 #[path = "support/child.rs"]
 mod child;
+#[path = "support/common.rs"]
+mod common;
 
 use std::collections::HashSet;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use arbitre_core::{Author, Change, Log, Position, Store};
-use arbitre_sqlite::{Options, SqliteStore};
-use child::{Child, Rng, block_on, field_change, fresh_dir, rec, seed};
+use arbitre_core::{Author, Change, Log, Position, Store, ready};
+use child::Child;
+use common::{Rng, fresh_dir, open, rec, seed};
 
 const T: Duration = Duration::from_secs(20);
 /// Busy wait of the writers (δ) and the upper bound on an observed wait (ε).
@@ -20,10 +22,6 @@ const EPSILON: Duration = Duration::from_secs(1);
 #[test]
 fn child_entry() {
     child::child_main();
-}
-
-fn open(path: &Path) -> SqliteStore {
-    SqliteStore::open(path, &Options::default()).expect("open")
 }
 
 /// One schedule: two writers and a reader driven step by step; `pt` drawn from a small domain
@@ -36,7 +34,7 @@ fn schedule(path: &Path, rng: &mut Rng, tag: u64) {
     for c in w.iter_mut().chain([&mut reader]) {
         c.expect("opened", T);
     }
-    let mut reference = Log::new(block_on(main.device()).unwrap());
+    let mut reference = Log::new(ready(main.device()).unwrap());
     for op in 0..2 + rng.below(19) {
         let who = rng.below(2) as usize;
         let pt = [0, 1, 1, 2, 3, 2][rng.below(6) as usize];
@@ -51,7 +49,7 @@ fn schedule(path: &Path, rng: &mut Rng, tag: u64) {
                 let f = ["f", "g"][rng.below(2) as usize];
                 let v = format!("v{tag}.{op}.{i}");
                 spec.push(format!("{id}={f}={v}"));
-                changes.push((id, field_change(f, v.as_bytes())));
+                changes.push((id, Change::field(f, v.as_bytes())));
             }
         }
         // Held 2δ: the other writer must time out; held δ/2: it must wait and succeed.
@@ -92,7 +90,7 @@ fn schedule(path: &Path, rng: &mut Rng, tag: u64) {
             w[1 - who].expect("released", T);
         }
         reader.send("since");
-        let stored = block_on(main.writes_since(Position(0))).unwrap();
+        let stored = ready(main.writes_since(Position(0))).unwrap();
         assert_eq!(
             reader.expect("since", T),
             format!("since {stored:?}"),
@@ -100,7 +98,7 @@ fn schedule(path: &Path, rng: &mut Rng, tag: u64) {
         );
     }
     // Commit order = stamp order, strictly; the store equals the sequential application.
-    let stored = block_on(main.writes_since(Position(0))).unwrap();
+    let stored = ready(main.writes_since(Position(0))).unwrap();
     let stamps: Vec<_> = stored.iter().map(|(_, w)| (w.stamp.l, w.stamp.c)).collect();
     assert!(stamps.windows(2).all(|p| p[0] < p[1]), "stamps {stamps:?}");
     let mut got: Vec<_> = stored.into_iter().map(|(_, w)| w).collect();
@@ -110,7 +108,7 @@ fn schedule(path: &Path, rng: &mut Rng, tag: u64) {
     assert_eq!(got, want);
     assert!(reference.conflicts().is_empty() && reference.anomalies().is_empty());
     for (r, state) in reference.projection() {
-        assert_eq!(block_on(main.state(&r)).unwrap(), Some(state));
+        assert_eq!(ready(main.state(&r)).unwrap(), Some(state));
     }
 }
 

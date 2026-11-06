@@ -1,36 +1,26 @@
 //! Open, creation, verification and settings of the SQLite adapter (T-8; US-1 case 11, US-4, US-7).
 
-use std::collections::BTreeSet;
-use std::future::Future;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::task::{Context, Poll, Waker};
+#[path = "support/common.rs"]
+mod common;
 
-use arbitre_core::{Cause, Damage, DeviceId, Store, StoreError};
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
+
+use arbitre_core::{
+    ApplyError, Author, Cause, Change, Damage, DeviceId, Field, FieldValue, LocalChange, Position,
+    RecordId, Rejection, Seen, Stamp, Store, StoreError, TargetKind, Watermark, Write, ready,
+};
 use arbitre_sqlite::{Options, SqliteStore};
+use common::{fresh_dir, open, raw_k, rec};
 use rusqlite::Connection;
 
 fn path() -> PathBuf {
-    static N: AtomicUsize = AtomicUsize::new(0);
-    let dir = std::env::temp_dir().join(format!(
-        "arbitre-settings-{}-{}",
-        std::process::id(),
-        N.fetch_add(1, Ordering::Relaxed)
-    ));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir.join("store.db")
-}
-
-fn open(p: &Path) -> SqliteStore {
-    SqliteStore::open(p, &Options::default()).expect("open")
+    fresh_dir("settings").join("store.db")
 }
 
 fn device(s: &SqliteStore) -> DeviceId {
-    let mut f = std::pin::pin!(s.device());
-    match f.as_mut().poll(&mut Context::from_waker(Waker::noop())) {
-        Poll::Ready(r) => r.unwrap(),
-        Poll::Pending => panic!("pending"),
-    }
+    ready(s.device()).unwrap()
 }
 
 fn check_settings(s: &SqliteStore) {
@@ -61,12 +51,7 @@ fn creation_and_reopen() {
     };
     assert_eq!(get("user_version"), 1);
     assert_eq!(get("application_id"), 0x4152_4254);
-    let (l, c): (i64, i64) = raw
-        .query_row("SELECT clock_l, clock_c FROM device", [], |r| {
-            Ok((r.get(0)?, r.get(1)?))
-        })
-        .unwrap();
-    assert_eq!((l, c), (0, 0));
+    assert_eq!(raw_k(&raw), (0, 0));
 }
 
 #[test]
@@ -147,42 +132,18 @@ fn foreign_file_is_not_a_store() {
         Some(StoreError::Corrupted(Damage::NotAStore))
     );
 }
-use std::time::{Duration, Instant};
-
-use arbitre_core::{
-    ApplyError, Author, Change, Field, FieldValue, LocalChange, Position, RecordId, Rejection,
-    Seen, Stamp, TargetKind, Watermark, Write,
-};
-
-fn ready<F: Future>(f: F) -> F::Output {
-    match std::pin::pin!(f).poll(&mut Context::from_waker(Waker::noop())) {
-        Poll::Ready(v) => v,
-        Poll::Pending => panic!("not ready on first poll"),
-    }
-}
-
-fn rec(id: &str) -> RecordId {
-    RecordId {
-        module: "m".into(),
-        category: "c".into(),
-        id: id.into(),
-    }
-}
 
 fn put(id: &str, v: &[u8]) -> LocalChange {
     LocalChange {
-        record: rec(id),
-        change: Change::Field {
-            name: Field("f".into()),
-            value: FieldValue(v.to_vec()),
-        },
+        record: rec("c", id),
+        change: Change::field("f", v),
         author: Author::CliUser,
     }
 }
 
 fn peer_write(l: u64) -> Write {
     Write {
-        record: rec("p"),
+        record: rec("c", "p"),
         change: Change::Delete,
         stamp: Stamp {
             l,
@@ -205,8 +166,8 @@ fn every_operation_is_ready_on_first_poll() {
     ready(s.device()).unwrap();
     ready(s.apply_local(1, &[put("a", b"x")])).unwrap();
     ready(s.apply(&[peer_write(5)])).unwrap();
-    ready(s.writes_of(&rec("a"))).unwrap();
-    ready(s.state(&rec("a"))).unwrap();
+    ready(s.writes_of(&rec("c", "a"))).unwrap();
+    ready(s.state(&rec("c", "a"))).unwrap();
     ready(s.records("m", "c")).unwrap();
     ready(s.writes_since(Position::START)).unwrap();
     ready(s.watermark(peer)).unwrap();
@@ -300,12 +261,11 @@ fn zero_wait_fails_fast() {
 
 fn sigma(p: &Path) -> (i64, i64, i64) {
     let raw = Connection::open(p).unwrap();
-    raw.query_row(
-        "SELECT (SELECT count(*) FROM writes), clock_l, clock_c FROM device",
-        [],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-    )
-    .unwrap()
+    let n = raw
+        .query_row("SELECT count(*) FROM writes", [], |r| r.get(0))
+        .unwrap();
+    let (l, c) = raw_k(&raw);
+    (n, l, c)
 }
 
 #[test]
@@ -323,7 +283,7 @@ fn rejections_leave_the_store_unchanged_and_the_handle_usable() {
         Err(ApplyError::Rejected(Rejection::Batch(_)))
     ));
     let empty = LocalChange {
-        record: rec(""),
+        record: rec("c", ""),
         ..put("a", b"y")
     };
     assert!(matches!(

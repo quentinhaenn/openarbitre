@@ -3,9 +3,6 @@
 #![allow(dead_code)]
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::future::Future;
-use std::pin::pin;
-use std::task::{Context, Poll, Waker};
 
 use arbitre_core::*;
 use proptest::prelude::*;
@@ -20,14 +17,6 @@ pub trait Harness {
     fn store(&self) -> &Self::Store;
     /// Drops the handle and opens the same store again; panics on failure.
     fn reopen(&mut self);
-}
-
-/// Polls `f` once with a no-op waker; a store future must be ready (RG-ST02-6.3).
-pub fn ready<F: Future>(f: F) -> F::Output {
-    match pin!(f).poll(&mut Context::from_waker(Waker::noop())) {
-        Poll::Ready(v) => v,
-        Poll::Pending => panic!("store future not ready on first poll (RG-ST02-6.3)"),
-    }
 }
 
 /// Runs the suite on `H`: the model-based property (1,000 sequences, `support::config()`),
@@ -503,10 +492,7 @@ fn rid(id: &str) -> RecordId {
 fn put(id: &str, name: &str, value: &[u8]) -> LocalChange {
     LocalChange {
         record: rid(id),
-        change: Change::Field {
-            name: Field(name.into()),
-            value: FieldValue(value.to_vec()),
-        },
+        change: Change::field(name, value),
         author: Author::CliUser,
     }
 }

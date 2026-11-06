@@ -16,7 +16,7 @@ fn threshold(ms: u64) -> Threshold {
 }
 
 fn write_at(l: u64, a: u128) -> Write {
-    write(record("d"), field("f", "v"), stamp(l, 0, a))
+    write(record("d"), Change::field("f", b"v"), stamp(l, 0, a))
 }
 
 #[test]

@@ -1,96 +1,22 @@
-//! Re-exec protocol shared by the process harnesses: the parent re-runs its test binary with
-//! `--exact child_entry` and `ARBITRE_CHILD_ROLE`; stdin carries commands, stdout `@ ` lines.
-//! Roles, lines and env: `.ctdd/stories/ST-02/06_skeleton.md` ("Child process protocol").
+//! Multi-process protocol: the test binary re-executed as a child, driven over stdin/stdout.
 #![allow(dead_code)]
 
 use std::collections::{BTreeMap, HashSet};
 use std::fmt::{Debug, Display};
-use std::future::Future;
 use std::io::{BufRead, BufReader, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, TryRecvError};
-use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
 use arbitre_core::{
-    Author, Change, DeviceId, Field, FieldValue, LocalChange, Position, RecordId, Seen, Stamp,
-    Store, Write,
+    Author, Change, DeviceId, Field, LocalChange, Position, Seen, Stamp, Store, Write, ready,
 };
 use arbitre_sqlite::{Options, SqliteStore};
 
+use crate::common::{Rng, rec};
+
 const PREFIX: &str = "@ ";
-
-/// splitmix64; the base seed comes from `ARBITRE_SEED` (printed by the tests).
-pub struct Rng(u64);
-
-impl Rng {
-    pub fn new(seed: u64) -> Self {
-        Self(seed)
-    }
-    pub fn next(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
-    }
-    pub fn below(&mut self, n: u64) -> u64 {
-        self.next() % n.max(1)
-    }
-    pub fn chance(&mut self, percent: u64) -> bool {
-        self.below(100) < percent
-    }
-}
-
-pub fn seed() -> u64 {
-    std::env::var("ARBITRE_SEED")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0x5EED)
-}
-
-pub fn hex(d: DeviceId) -> String {
-    d.0.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-/// Polls a store future once (RG-ST02-6.3).
-pub fn block_on<F: Future>(f: F) -> F::Output {
-    match std::pin::pin!(f).poll(&mut Context::from_waker(Waker::noop())) {
-        Poll::Ready(v) => v,
-        Poll::Pending => panic!("store future not ready on first poll"),
-    }
-}
-
-pub fn rec(category: &str, id: &str) -> RecordId {
-    RecordId {
-        module: "m".into(),
-        category: category.into(),
-        id: id.into(),
-    }
-}
-
-pub fn field_change(field: &str, value: &[u8]) -> Change {
-    Change::Field {
-        name: Field(field.into()),
-        value: FieldValue(value.to_vec()),
-    }
-}
-
-/// Fresh empty directory; the caller removes it.
-pub fn fresh_dir(tag: &str) -> PathBuf {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    static N: AtomicUsize = AtomicUsize::new(0);
-    let dir = std::env::temp_dir().join(format!(
-        "arbitre-{tag}-{}-{}",
-        std::process::id(),
-        N.fetch_add(1, Ordering::Relaxed)
-    ));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-// ---------------------------------------------------------------- parent side
 
 pub struct Child {
     proc: std::process::Child,
@@ -211,7 +137,7 @@ fn open_or_exit(path: &Path, wait: Duration) -> SqliteStore {
     };
     match SqliteStore::open(path, &options) {
         Ok(s) => {
-            say(format!("opened {}", hex(block_on(s.device()).unwrap())));
+            say(format!("opened {}", ready(s.device()).unwrap().hex()));
             s
         }
         Err(e) => {
@@ -231,7 +157,7 @@ fn parse_changes(spec: &str) -> Vec<LocalChange> {
             let parts: Vec<&str> = item.split('=').collect();
             let change = match parts[..] {
                 [_, "-"] => Change::Delete,
-                [_, f, v] => field_change(f, v.as_bytes()),
+                [_, f, v] => Change::field(f, v.as_bytes()),
                 _ => panic!("bad spec {item}"),
             };
             LocalChange {
@@ -299,7 +225,7 @@ fn writer(path: &Path, wait: Duration, rx: &Receiver<String>, id: u64, seed: u64
             if rng.chance(20) {
                 Change::Delete
             } else {
-                field_change("f", format!("v{id}.{b}.{i}").as_bytes())
+                Change::field("f", format!("v{id}.{b}.{i}").as_bytes())
             }
         };
         say(format!("start {b} {n}"));
@@ -311,7 +237,7 @@ fn writer(path: &Path, wait: Duration, rx: &Receiver<String>, id: u64, seed: u64
                     author: Author::UiUser,
                 })
                 .collect();
-            block_on(store.apply_local(rng.below(5), &changes)).map(|w| dbg(&w))
+            ready(store.apply_local(rng.below(5), &changes)).map(|w| dbg(&w))
         } else {
             let batch: Vec<Write> = (0..n)
                 .map(|i| Write {
@@ -326,7 +252,7 @@ fn writer(path: &Path, wait: Duration, rx: &Receiver<String>, id: u64, seed: u64
                     author: Author::System,
                 })
                 .collect();
-            block_on(store.apply(&batch)).map(|_| dbg(&batch))
+            ready(store.apply(&batch)).map(|_| dbg(&batch))
         };
         match result {
             Ok(w) => say(format!("confirmed {b} {w}")),
@@ -345,7 +271,7 @@ fn steps(path: &Path, wait: Duration, rx: &Receiver<String>) {
         match cmd {
             "local" => {
                 let (pt, spec) = rest.split_once(' ').unwrap();
-                match block_on(store.apply_local(pt.parse().unwrap(), &parse_changes(spec))) {
+                match ready(store.apply_local(pt.parse().unwrap(), &parse_changes(spec))) {
                     Ok(w) => say(format!("ok {}", dbg(&w))),
                     Err(e) => say(format!("err {}", dbg(&e))),
                 }
@@ -361,7 +287,7 @@ fn steps(path: &Path, wait: Duration, rx: &Receiver<String>) {
             }
             "since" => say(format!(
                 "since {}",
-                dbg(&block_on(store.writes_since(Position(0))).unwrap())
+                dbg(&ready(store.writes_since(Position(0))).unwrap())
             )),
             other => panic!("unknown command {other}"),
         }
@@ -376,11 +302,11 @@ fn free_writer(path: &Path, wait: Duration, rx: &Receiver<String>, k: usize) {
         let changes: Vec<LocalChange> = (1..=k)
             .map(|i| LocalChange {
                 record: rec("cat", &format!("r{i}")),
-                change: field_change("v", t.to_string().as_bytes()),
+                change: Change::field("v", t.to_string().as_bytes()),
                 author: Author::System,
             })
             .collect();
-        match block_on(store.apply_local(0, &changes)) {
+        match ready(store.apply_local(0, &changes)) {
             Ok(ws) => ws.iter().for_each(|w| say(format!("w {}", dbg(w)))),
             Err(e) => {
                 say(format!("failed {t} {}", dbg(&e)));
@@ -397,7 +323,7 @@ fn free_reader(path: &Path, wait: Duration, rx: &Receiver<String>, k: usize) {
     let store = open_or_exit(path, wait);
     let (mut reads, mut printed) = (0u64, HashSet::new());
     while !stopped(rx) {
-        let since = block_on(store.writes_since(Position(0))).unwrap();
+        let since = ready(store.writes_since(Position(0))).unwrap();
         let mut counts = BTreeMap::new();
         for (_, w) in &since {
             if let Change::Field { value, .. } = &w.change {
@@ -411,7 +337,7 @@ fn free_reader(path: &Path, wait: Duration, rx: &Receiver<String>, k: usize) {
         if let Some((tag, n)) = counts.iter().find(|(_, n)| **n != k) {
             say(format!("bad tag {tag:?} has {n} of {k} writes"));
         }
-        let recs = block_on(store.records("m", "cat")).unwrap();
+        let recs = ready(store.records("m", "cat")).unwrap();
         let tags: HashSet<_> = recs
             .iter()
             .map(|(_, s)| s.fields.get(&Field("v".into())).map(|w| dbg(&w.change)))

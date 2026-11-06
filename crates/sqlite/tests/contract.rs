@@ -5,10 +5,13 @@ mod support;
 #[path = "../../core/tests/support/contract.rs"]
 mod contract;
 
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+#[path = "support/common.rs"]
+mod common;
 
-use arbitre_sqlite::{Options, SqliteStore};
+use std::path::PathBuf;
+
+use arbitre_sqlite::SqliteStore;
+use common::{fresh_dir, open};
 use contract::Harness;
 
 /// Fresh store per sequence, in its own temp directory; `reopen` = drop, then open.
@@ -17,22 +20,11 @@ struct SqliteHarness {
     store: Option<SqliteStore>,
 }
 
-fn open(path: &Path) -> SqliteStore {
-    SqliteStore::open(path, &Options::default()).expect("open store")
-}
-
 impl Harness for SqliteHarness {
     type Store = SqliteStore;
 
     fn fresh() -> Self {
-        static N: AtomicUsize = AtomicUsize::new(0);
-        let dir = std::env::temp_dir().join(format!(
-            "arbitre-contract-{}-{}",
-            std::process::id(),
-            N.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::create_dir_all(&dir).expect("temp dir");
-        let path = dir.join("store.db");
+        let path = fresh_dir("contract").join("store.db");
         let store = Some(open(&path));
         Self { path, store }
     }

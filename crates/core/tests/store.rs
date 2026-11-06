@@ -5,7 +5,7 @@ mod support;
 mod contract;
 
 use arbitre_core::*;
-use contract::{Harness, ready};
+use contract::Harness;
 use proptest::prelude::*;
 use proptest::test_runner::Config as ProptestConfig;
 use support::*;
@@ -71,7 +71,7 @@ proptest! {
             }
         }
         let mut restored = rebuild(dev(D), kk, &[]).unwrap();
-        let issued = restored.write(pt, record("r"), field("f", "v"), Author::CliUser);
+        let issued = restored.write(pt, record("r"), Change::field("f", b"v"), Author::CliUser);
         prop_assert_eq!(
             issued.map(|w| w.stamp),
             original.issue(pt).map_err(WriteError::from)
@@ -85,8 +85,8 @@ proptest! {
 fn stamp_local_stamps_in_list_order_from_k() {
     let mut log = fresh_log(k(100, 2));
     let changes = [
-        local("r", field("f", "a")),
-        local("r", field("f", "b")),
+        local("r", Change::field("f", b"a")),
+        local("r", Change::field("f", b"b")),
         local("s", Change::Delete),
     ];
     let (writes, kk) = stamp_local(&mut log, 50, &changes).unwrap();
@@ -109,9 +109,13 @@ fn stamp_local_stamps_in_list_order_from_k() {
 #[test]
 fn stamp_local_seen_covers_earlier_changes_of_the_list() {
     let cases = [
-        (field("f", "a"), field("f", "b"), kind("f")),
-        (field("f", "a"), Change::Delete, kind("f")),
-        (Change::Delete, field("f", "a"), TargetKind::Delete),
+        (
+            Change::field("f", b"a"),
+            Change::field("f", b"b"),
+            kind("f"),
+        ),
+        (Change::field("f", b"a"), Change::Delete, kind("f")),
+        (Change::Delete, Change::field("f", b"a"), TargetKind::Delete),
     ];
     for (first, second, seen_kind) in cases {
         let mut log = fresh_log(k(0, 0));
@@ -125,11 +129,11 @@ fn stamp_local_seen_covers_earlier_changes_of_the_list() {
 fn us1_case8_clock_went_back() {
     let known = [write(
         record("r"),
-        field("f", "a"),
+        Change::field("f", b"a"),
         stamp(1_000_000_000, 3, D),
     )];
     let mut log = rebuild(dev(D), k(1_000_000_000, 3), &known).unwrap();
-    let (w, kk) = stamp_local(&mut log, 0, &[local("r", field("f", "b"))]).unwrap();
+    let (w, kk) = stamp_local(&mut log, 0, &[local("r", Change::field("f", b"b"))]).unwrap();
     assert_eq!(w[0].stamp, stamp(1_000_000_000, 4, D));
     assert_eq!(kk, k(1_000_000_000, 4));
 }
@@ -140,9 +144,9 @@ fn us3_case10_invalid_change_rejects_the_whole_list() {
     let mut log = fresh_log(k(10, 0));
     let before = log.clone();
     let changes = [
-        local("r", field("f", "a")),
-        local("r", field("", "b")),
-        local("r", field("g", "c")),
+        local("r", Change::field("f", b"a")),
+        local("r", Change::field("", b"b")),
+        local("r", Change::field("g", b"c")),
     ];
     assert_eq!(
         stamp_local(&mut log, 20, &changes),
@@ -156,8 +160,11 @@ fn us3_case10_invalid_change_rejects_the_whole_list() {
 
 #[test]
 fn stamp_local_clock_exhausted_is_rejected() {
-    let one = [local("r", field("f", "a"))];
-    let two = [local("r", field("f", "a")), local("r", field("f", "b"))];
+    let one = [local("r", Change::field("f", b"a"))];
+    let two = [
+        local("r", Change::field("f", b"a")),
+        local("r", Change::field("f", b"b")),
+    ];
     let cases: [(ClockState, u64, &[LocalChange], usize); 3] = [
         (k(10, u32::MAX), 5, &one, 0),
         (k(L_MAX - 1, 0), L_MAX, &one, 0),
@@ -181,7 +188,7 @@ fn stamp_local_clock_exhausted_is_rejected() {
 
 #[test]
 fn rebuild_known_write_failing_validate_is_damage() {
-    let mut w = write(record("r"), field("f", "a"), stamp(10, 0, D));
+    let mut w = write(record("r"), Change::field("f", b"a"), stamp(10, 0, D));
     w.seen.insert(kind("f"), stamp(10, 0, PEER));
     assert_eq!(
         rebuild(dev(D), k(10, 0), &[w]).err(),
@@ -192,8 +199,8 @@ fn rebuild_known_write_failing_validate_is_damage() {
 /// Q-A (b): a local-device pair is damage; a peer pair is an anomaly (US-5 case 4).
 #[test]
 fn rebuild_local_identity_pair_is_damage_peer_pair_is_not() {
-    let a = write(record("r"), field("f", "a"), stamp(10, 0, D));
-    let b = write(record("r"), field("f", "b"), stamp(10, 0, D));
+    let a = write(record("r"), Change::field("f", b"a"), stamp(10, 0, D));
+    let b = write(record("r"), Change::field("f", b"b"), stamp(10, 0, D));
     assert_eq!(
         rebuild(dev(D), k(10, 0), &[a.clone(), b]).err(),
         Some(Damage::LocalIdentityPair {
@@ -201,8 +208,8 @@ fn rebuild_local_identity_pair_is_damage_peer_pair_is_not() {
             stamp: a.stamp
         })
     );
-    let pa = write(record("r"), field("f", "a"), stamp(10, 0, PEER));
-    let pb = write(record("r"), field("f", "b"), stamp(10, 0, PEER));
+    let pa = write(record("r"), Change::field("f", b"a"), stamp(10, 0, PEER));
+    let pb = write(record("r"), Change::field("f", b"b"), stamp(10, 0, PEER));
     let log = rebuild(dev(D), k(10, 0), &[pa, pb]).unwrap();
     assert_eq!(log.anomalies().len(), 1);
 }
@@ -210,7 +217,7 @@ fn rebuild_local_identity_pair_is_damage_peer_pair_is_not() {
 /// DA F-2: the clock check compares `(l, c)` only, never a full `Stamp`.
 #[test]
 fn rebuild_clock_check_on_l_c_only() {
-    let at = |l, c, a| [write(record("r"), field("f", "a"), stamp(l, c, a))];
+    let at = |l, c, a| [write(record("r"), Change::field("f", b"a"), stamp(l, c, a))];
     assert!(rebuild(dev(D), k(10, 5), &at(10, 5, PEER)).is_ok());
     assert!(rebuild(dev(D), k(10, 5), &at(10, 5, LOW_PEER)).is_ok());
     assert_eq!(
@@ -232,12 +239,12 @@ fn us1_case9_received_stamp_far_ahead() {
     let mut log = fresh_log(kk);
     let batch = [write(
         record("r"),
-        field("f", "a"),
+        Change::field("f", b"a"),
         stamp(1_000_000_000_000, 0, PEER),
     )];
     let r = receive(dev(D), &mut log, kk, &batch).unwrap();
     assert_eq!(r.clock, k(1_000_000_000_000, 0));
-    let (w, _) = stamp_local(&mut log, 0, &[local("s", field("f", "b"))]).unwrap();
+    let (w, _) = stamp_local(&mut log, 0, &[local("s", Change::field("f", b"b"))]).unwrap();
     assert!(w[0].stamp > batch[0].stamp);
 }
 
@@ -245,7 +252,7 @@ fn us1_case9_received_stamp_far_ahead() {
 #[test]
 fn us5_case7_same_batch_twice() {
     let batch = [
-        write(record("r"), field("f", "a"), stamp(100, 5, PEER)),
+        write(record("r"), Change::field("f", b"a"), stamp(100, 5, PEER)),
         write(record("s"), Change::Delete, stamp(90, 0, PEER)),
     ];
     for kk in [k(100, 4), k(100, 5), k(100, 6)] {
@@ -262,9 +269,9 @@ fn us5_case7_same_batch_twice() {
 
 #[test]
 fn receive_new_is_unknown_writes_deduplicated_in_batch_order() {
-    let w1 = write(record("r"), field("f", "a"), stamp(1, 0, PEER));
-    let w2 = write(record("r"), field("f", "b"), stamp(2, 0, PEER));
-    let w3 = write(record("s"), field("f", "c"), stamp(3, 0, PEER));
+    let w1 = write(record("r"), Change::field("f", b"a"), stamp(1, 0, PEER));
+    let w2 = write(record("r"), Change::field("f", b"b"), stamp(2, 0, PEER));
+    let w3 = write(record("s"), Change::field("f", b"c"), stamp(3, 0, PEER));
     let mut log = rebuild(dev(D), k(1, 0), std::slice::from_ref(&w1)).unwrap();
     let r = receive(
         dev(D),
@@ -279,9 +286,12 @@ fn receive_new_is_unknown_writes_deduplicated_in_batch_order() {
 /// US-6 case 6: invalid batch rejected, `Log` and `K` unchanged.
 #[test]
 fn us6_case6_invalid_batch_rejected() {
-    let mut bad = write(record("r"), field("f", "b"), stamp(5, 0, PEER));
+    let mut bad = write(record("r"), Change::field("f", b"b"), stamp(5, 0, PEER));
     bad.seen.insert(kind("f"), stamp(5, 0, PEER));
-    let batch = [write(record("r"), field("f", "a"), stamp(4, 0, PEER)), bad];
+    let batch = [
+        write(record("r"), Change::field("f", b"a"), stamp(4, 0, PEER)),
+        bad,
+    ];
     let mut log = fresh_log(k(3, 0));
     let before = log.clone();
     assert_eq!(
@@ -297,12 +307,12 @@ fn us6_case6_invalid_batch_rejected() {
 /// Q-A guard: stored local identity re-sent with another content.
 #[test]
 fn qa_guard_stored_local_identity_with_other_content() {
-    let stored = write(record("r"), field("f", "a"), stamp(10, 0, D));
+    let stored = write(record("r"), Change::field("f", b"a"), stamp(10, 0, D));
     let mut log = rebuild(dev(D), k(10, 0), &[stored]).unwrap();
     let before = log.clone();
     let batch = [
-        write(record("s"), field("f", "x"), stamp(11, 0, PEER)),
-        write(record("r"), field("f", "b"), stamp(10, 0, D)),
+        write(record("s"), Change::field("f", b"x"), stamp(11, 0, PEER)),
+        write(record("r"), Change::field("f", b"b"), stamp(10, 0, D)),
     ];
     assert_eq!(
         receive(dev(D), &mut log, k(10, 0), &batch).err(),
@@ -316,10 +326,10 @@ fn qa_guard_stored_local_identity_with_other_content() {
 fn qa_guard_two_contents_of_a_local_identity_in_the_batch() {
     let mut log = fresh_log(k(0, 0));
     let batch = [
-        write(record("s"), field("f", "x"), stamp(11, 0, PEER)),
-        write(record("r"), field("f", "a"), stamp(10, 0, D)),
-        write(record("t"), field("f", "y"), stamp(12, 0, PEER)),
-        write(record("r"), field("f", "b"), stamp(10, 0, D)),
+        write(record("s"), Change::field("f", b"x"), stamp(11, 0, PEER)),
+        write(record("r"), Change::field("f", b"a"), stamp(10, 0, D)),
+        write(record("t"), Change::field("f", b"y"), stamp(12, 0, PEER)),
+        write(record("r"), Change::field("f", b"b"), stamp(10, 0, D)),
     ];
     assert_eq!(
         receive(dev(D), &mut log, k(0, 0), &batch).err(),
@@ -330,10 +340,10 @@ fn qa_guard_two_contents_of_a_local_identity_in_the_batch() {
 /// Q-A guard: the reported index is the write sharing target **and** stamp, not just one of them.
 #[test]
 fn qa_guard_index_needs_target_and_stamp_both() {
-    let stored = write(record("r"), field("f", "a"), stamp(10, 0, D));
-    let reused = write(record("r"), field("f", "b"), stamp(10, 0, D));
-    let same_target = write(record("r"), field("f", "x"), stamp(11, 0, PEER));
-    let same_stamp = write(record("s"), field("f", "y"), stamp(10, 0, D));
+    let stored = write(record("r"), Change::field("f", b"a"), stamp(10, 0, D));
+    let reused = write(record("r"), Change::field("f", b"b"), stamp(10, 0, D));
+    let same_target = write(record("r"), Change::field("f", b"x"), stamp(11, 0, PEER));
+    let same_stamp = write(record("s"), Change::field("f", b"y"), stamp(10, 0, D));
     for first in [same_target, same_stamp] {
         let mut log = rebuild(dev(D), k(10, 0), std::slice::from_ref(&stored)).unwrap();
         assert_eq!(
@@ -347,7 +357,7 @@ fn qa_guard_index_needs_target_and_stamp_both() {
 #[test]
 fn qa_guard_unknown_local_identity_is_accepted() {
     let mut log = fresh_log(k(5, 0));
-    let w = write(record("r"), field("f", "a"), stamp(10, 0, D));
+    let w = write(record("r"), Change::field("f", b"a"), stamp(10, 0, D));
     let r = receive(dev(D), &mut log, k(5, 0), std::slice::from_ref(&w)).unwrap();
     assert_eq!(r.new, vec![w]);
     assert_eq!(r.clock, k(10, 0));
@@ -355,7 +365,7 @@ fn qa_guard_unknown_local_identity_is_accepted() {
 
 #[test]
 fn qa_guard_resent_identical_local_write_is_a_duplicate() {
-    let w = write(record("r"), field("f", "a"), stamp(10, 0, D));
+    let w = write(record("r"), Change::field("f", b"a"), stamp(10, 0, D));
     let mut log = rebuild(dev(D), k(10, 0), std::slice::from_ref(&w)).unwrap();
     let r = receive(dev(D), &mut log, k(10, 0), &[w]).unwrap();
     assert!(r.new.is_empty());
@@ -365,8 +375,8 @@ fn qa_guard_resent_identical_local_write_is_a_duplicate() {
 /// US-5 case 4: a peer pair is accepted and reported as an anomaly.
 #[test]
 fn us5_case4_peer_second_content_is_an_anomaly() {
-    let a = write(record("r"), field("f", "a"), stamp(10, 0, PEER));
-    let b = write(record("r"), field("f", "b"), stamp(10, 0, PEER));
+    let a = write(record("r"), Change::field("f", b"a"), stamp(10, 0, PEER));
+    let b = write(record("r"), Change::field("f", b"b"), stamp(10, 0, PEER));
     let mut log = rebuild(dev(D), k(10, 0), &[a]).unwrap();
     let r = receive(dev(D), &mut log, k(10, 0), std::slice::from_ref(&b)).unwrap();
     assert_eq!(r.new, vec![b]);
@@ -421,7 +431,12 @@ fn sim() -> SimStore {
 
 fn changes(n: usize, tag: u32) -> Vec<LocalChange> {
     (0..n)
-        .map(|i| local(&format!("r{}", i % 3), field("f", &format!("{tag}-{i}"))))
+        .map(|i| {
+            local(
+                &format!("r{}", i % 3),
+                Change::field("f", format!("{tag}-{i}").as_bytes()),
+            )
+        })
         .collect()
 }
 
@@ -519,7 +534,7 @@ fn received_batch_full_at_commit() {
         .map(|i| {
             write(
                 record("r"),
-                field(&format!("f{i}"), "a"),
+                Change::field(&format!("f{i}"), b"a"),
                 stamp(1_000_000 + i, 0, PEER),
             )
         })
@@ -558,7 +573,7 @@ fn no_op_writes_on_full_storage_succeed() {
     let s = sim();
     let batch = [write(
         record("r"),
-        field("f", "a"),
+        Change::field("f", b"a"),
         stamp(1_000_000, 0, PEER),
     )];
     ready(s.apply(&batch)).unwrap();
@@ -581,7 +596,7 @@ fn us2_case8_received_batch_on_full_storage() {
     s.full_after(0);
     let batch = [write(
         record("r"),
-        field("f", "a"),
+        Change::field("f", b"a"),
         stamp(1_000_000, 0, PEER),
     )];
     assert_eq!(
@@ -658,10 +673,10 @@ fn damage_poisons_and_survives_reopen() {
 #[test]
 fn qa_rejection_on_sim_store_does_not_poison() {
     let s = sim();
-    let stored = ready(s.apply_local(10, &[local("r", field("f", "a"))])).unwrap();
+    let stored = ready(s.apply_local(10, &[local("r", Change::field("f", b"a"))])).unwrap();
     let before = sigma(&s);
     let mut reused = stored[0].clone();
-    reused.change = field("f", "b");
+    reused.change = Change::field("f", b"b");
     assert_eq!(
         ready(s.apply(&[reused])),
         Err(ApplyError::Rejected(Rejection::LocalIdentityReused {

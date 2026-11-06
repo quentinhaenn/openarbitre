@@ -11,10 +11,6 @@ use proptest::prelude::*;
 use proptest::test_runner::TestRunner;
 use support::*;
 
-fn outputs_of(x: &Log) -> (Projection, Vec<Write>, Vec<Conflict>) {
-    (x.projection(), x.discarded(), x.conflicts())
-}
-
 fn received(batches: &[&[Write]]) -> Log {
     let mut x = Log::new(dev(100));
     for batch in batches {

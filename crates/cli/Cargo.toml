@@ -13,6 +13,8 @@ clap = { version = "4.6.7", features = ["string"] }
 jiff = { workspace = true, features = ["std", "tz-system"] }
 
 [dev-dependencies]
+# `ready` (single-poll store futures) is behind `sim`.
+arbitre-core = { version = "0.1.0", path = "../core", features = ["sim"] }
 # Independent JSON parser for acceptance tests (ST-03 plan P-2).
 serde_json = { workspace = true }
 

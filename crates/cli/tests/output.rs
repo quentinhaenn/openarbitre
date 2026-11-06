@@ -3,25 +3,10 @@
 
 mod support;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde_json::json;
 use support::*;
-
-fn store(home: &Path) -> PathBuf {
-    home.join("arbitre.db")
-}
-
-/// `args --store <home>/arbitre.db`, ± `--json`.
-fn on(home: &Path, args: &[&str], json: bool) -> Run {
-    let s = store(home).display().to_string();
-    let mut v: Vec<&str> = args.to_vec();
-    v.extend(["--store", s.as_str()]);
-    if json {
-        v.push("--json");
-    }
-    arbitre(home, &v)
-}
 
 /// Echoed data without its `remark`, after checking the remark is a string.
 #[track_caller]
@@ -36,7 +21,7 @@ fn echoed(d: &serde_json::Value) -> serde_json::Value {
 fn nominal_json() {
     // Matrix US-2 rows 1, 3.
     let home = tmp("out-nominal");
-    let r = on(&home, &["test", "echo", "--text", "hi"], true);
+    let r = on_home(&home, &["test", "echo", "--text", "hi"], true);
     assert_eq!(r.code, 0, "{}", r.stderr);
     assert_eq!(
         echoed(&doc(&r)),
@@ -48,7 +33,7 @@ fn nominal_json() {
 fn every_input_kind() {
     // Matrix US-4 rows 1, 3.
     let home = tmp("out-kinds");
-    let r = on(
+    let r = on_home(
         &home,
         &[
             "test",
@@ -87,7 +72,11 @@ fn every_input_kind() {
 fn optional_absent_is_an_absent_key() {
     // Matrix US-4 row 2.
     let home = tmp("out-optional");
-    let d = echoed(&doc(&on(&home, &["test", "echo", "--text", "hi"], true)));
+    let d = echoed(&doc(&on_home(
+        &home,
+        &["test", "echo", "--text", "hi"],
+        true,
+    )));
     for k in ["note", "count", "level", "due"] {
         assert!(d.get(k).is_none(), "{k}");
     }
@@ -136,8 +125,8 @@ fn human_text_shows_every_leaf() {
         "--note",
         "nn",
     ];
-    let d = success(&doc(&on(&home, &args, true)));
-    let r = on(&home, &args, false);
+    let d = success(&doc(&on_home(&home, &args, true)));
+    let r = on_home(&home, &args, false);
     assert_eq!(r.code, 0, "{}", r.stderr);
     for (k, v) in d.as_object().unwrap() {
         let texts: Vec<String> = match v {
@@ -158,7 +147,7 @@ fn free_text_escaped_in_json_verbatim_in_human() {
     // Matrix US-2 row 4, RG-ST03-2.4.
     let home = tmp("out-free");
     let x = "a\nb \"q\" \\ \u{1} é 日本 /";
-    let r = on(&home, &["test", "echo", "--text", x], true);
+    let r = on_home(&home, &["test", "echo", "--text", x], true);
     assert_eq!(r.code, 0, "{}", r.stderr);
     assert!(
         r.stdout
@@ -167,7 +156,7 @@ fn free_text_escaped_in_json_verbatim_in_human() {
         r.stdout
     );
     assert_eq!(echoed(&doc(&r))["text"], x);
-    let r = on(&home, &["test", "echo", "--text", x], false);
+    let r = on_home(&home, &["test", "echo", "--text", x], false);
     assert!(r.stdout.contains(x), "{:?}", r.stdout);
 }
 
@@ -175,12 +164,12 @@ fn free_text_escaped_in_json_verbatim_in_human() {
 fn pure_command() {
     // Matrix US-2 row 5.
     let home = tmp("out-noop");
-    let r = on(&home, &["test", "noop"], true);
+    let r = on_home(&home, &["test", "noop"], true);
     assert_eq!(
         (r.code, r.stdout.as_str()),
         (0, "{\"data\":{},\"format\":1,\"ok\":true}\n")
     );
-    let r = on(&home, &["test", "noop"], false);
+    let r = on_home(&home, &["test", "noop"], false);
     assert_eq!((r.code, r.stdout.as_str()), (0, ""));
 }
 
@@ -188,12 +177,12 @@ fn pure_command() {
 fn failure_details() {
     // Matrix US-2 row 6, Q-DA1 (a).
     let home = tmp("out-refuse");
-    let r = on(&home, &["test", "refuse"], true);
+    let r = on_home(&home, &["test", "refuse"], true);
     assert_eq!(r.code, 1);
     let d = doc(&r);
     assert_eq!(failure(&d).0, "refusal");
     assert_eq!(d["data"], json!({"item": "x"}));
-    let r = on(&home, &["test", "refuse"], false);
+    let r = on_home(&home, &["test", "refuse"], false);
     assert_eq!((r.code, r.stdout.as_str()), (1, ""));
     assert!(
         r.stderr.lines().any(|l| l.starts_with("error: ")),
@@ -201,7 +190,7 @@ fn failure_details() {
         r.stderr
     );
     assert!(shown(&r.stderr, "item", "x"), "{}", r.stderr);
-    let d = doc(&on(&home, &["test", "fail"], true));
+    let d = doc(&on_home(&home, &["test", "fail"], true));
     assert_eq!(failure(&d).0, "tool_error");
     assert!(d.get("data").is_none(), "{d}");
 }
@@ -210,7 +199,7 @@ fn failure_details() {
 fn diagnostics_stay_on_stderr() {
     // Matrix US-2 row 7.
     let home = tmp("out-noisy");
-    let r = on(&home, &["test", "noisy"], true);
+    let r = on_home(&home, &["test", "noisy"], true);
     assert_eq!(r.code, 0);
     assert_eq!(success(&doc(&r)), json!({}));
     assert!(!r.stderr.is_empty());
@@ -220,17 +209,17 @@ fn diagnostics_stay_on_stderr() {
 fn same_value_same_bytes() {
     // Matrix US-2 row 8.
     let home = tmp("out-bytes");
-    let a = on(
+    let a = on_home(
         &home,
         &["test", "echo", "--text", "hi", "--count", "3", "--tag", "t"],
         true,
     );
-    let b = on(
+    let b = on_home(
         &home,
         &["test", "echo", "--tag", "t", "--count", "3", "--text", "hi"],
         true,
     );
-    let c = on(
+    let c = on_home(
         &home,
         &["test", "echo", "--text", "hi", "--count", "3", "--tag", "t"],
         true,
@@ -245,7 +234,7 @@ fn action_and_group_both_run() {
     // Matrix US-4 row 7, Q-B (a).
     let home = tmp("out-group");
     for args in [&["test", "group"][..], &["test", "group", "child"]] {
-        let r = on(&home, args, true);
+        let r = on_home(&home, args, true);
         assert_eq!(r.code, 0, "{args:?}: {}", r.stderr);
         assert_eq!(success(&doc(&r)), json!({}));
     }
@@ -255,7 +244,7 @@ fn action_and_group_both_run() {
 fn foundation_path() {
     // Matrix US-4 row 9.
     let home = tmp("out-foundation");
-    let r = on(&home, &["test-foundation"], true);
+    let r = on_home(&home, &["test-foundation"], true);
     assert_eq!(r.code, 0, "{}", r.stderr);
 }
 

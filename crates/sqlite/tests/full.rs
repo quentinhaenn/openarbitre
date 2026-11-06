@@ -1,34 +1,24 @@
 //! E-ST02-2: full storage on the SQLite adapter, through a fault VFS (plan T-12; RG-ST02-2.1 to 2.4,
 //! RG-ST02-1.3, RG-ST02-4.1). Four levels, 100 cases each; each case asserts the budget was crossed.
+#[path = "support/common.rs"]
+mod common;
 #[path = "support/full_vfs.rs"]
 mod full_vfs;
 
-use std::future::Future;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::task::{Context, Poll, Waker};
+use std::path::Path;
 
 use arbitre_core::{
     ApplyError, Author, Cause, Change, DeviceId, Field, FieldValue, LocalChange, Position,
-    RecordId, Store, StoreError, Watermark, Write,
+    RecordId, Store, StoreError, Watermark, Write, ready,
 };
 use arbitre_sqlite::SqliteStore;
+use common::{fresh_dir, raw_k};
 use full_vfs::FullVfs;
 use proptest::prelude::*;
 use proptest::test_runner::{Config, RngSeed, TestRunner};
 use rusqlite::Connection;
 
 const CASES: u32 = 100;
-
-fn block_on<T>(f: impl Future<Output = T>) -> T {
-    match std::pin::pin!(f)
-        .as_mut()
-        .poll(&mut Context::from_waker(Waker::noop()))
-    {
-        Poll::Ready(r) => r,
-        Poll::Pending => panic!("pending"),
-    }
-}
 
 fn runner(seed: u64, cases: u32) -> TestRunner {
     TestRunner::new(Config {
@@ -37,17 +27,6 @@ fn runner(seed: u64, cases: u32) -> TestRunner {
         failure_persistence: None,
         ..Config::default()
     })
-}
-
-fn dir() -> PathBuf {
-    static N: AtomicUsize = AtomicUsize::new(0);
-    let d = std::env::temp_dir().join(format!(
-        "arbitre-full-{}-{}",
-        std::process::id(),
-        N.fetch_add(1, Ordering::Relaxed)
-    ));
-    std::fs::create_dir_all(&d).unwrap();
-    d
 }
 
 fn peer(n: u128) -> DeviceId {
@@ -86,16 +65,12 @@ struct Sigma {
 fn sigma(s: &SqliteStore, path: &Path) -> Sigma {
     let raw = Connection::open(path).unwrap();
     Sigma {
-        device: block_on(s.device()).unwrap(),
-        writes: block_on(s.writes_since(Position(0))).unwrap(),
+        device: ready(s.device()).unwrap(),
+        writes: ready(s.writes_since(Position(0))).unwrap(),
         marks: [1, 2, 3]
-            .map(|n| block_on(s.watermark(peer(n))).unwrap())
+            .map(|n| ready(s.watermark(peer(n))).unwrap())
             .to_vec(),
-        k: raw
-            .query_row("SELECT clock_l, clock_c FROM device", [], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })
-            .unwrap(),
+        k: raw_k(&raw),
         v: raw
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap(),
@@ -111,9 +86,9 @@ fn build(vfs: &FullVfs, path: &Path, prefix: &[usize], len: usize) -> SqliteStor
     vfs.unlimited();
     let s = open(vfs, path);
     for (i, &n) in prefix.iter().enumerate() {
-        block_on(s.apply_local(100 + i as u64, &changes(i as u8, n, len))).unwrap();
+        ready(s.apply_local(100 + i as u64, &changes(i as u8, n, len))).unwrap();
     }
-    block_on(s.advance_watermark(peer(1), Watermark(3, 0))).unwrap();
+    ready(s.advance_watermark(peer(1), Watermark(3, 0))).unwrap();
     s
 }
 
@@ -167,7 +142,7 @@ fn is_full<T: std::fmt::Debug>(r: Result<T, ApplyError>) -> bool {
 
 /// One case: dry run to measure the batch's `xWrite` calls, then the real run at `level`.
 fn run_case(vfs: &FullVfs, level: Level, c: &Case) {
-    let work = dir();
+    let work = fresh_dir("full");
     let (dry_path, path) = (work.join("dry.db"), work.join("store.db"));
     let batch = changes(200, c.k, c.len);
 
@@ -176,8 +151,8 @@ fn run_case(vfs: &FullVfs, level: Level, c: &Case) {
     vfs.unlimited();
     let mut dry_writes = Vec::new();
     match level {
-        Level::Watermark => block_on(dry.advance_watermark(peer(2), Watermark(5, 1))).unwrap(),
-        _ => dry_writes = block_on(dry.apply_local(1000, &batch)).unwrap(),
+        Level::Watermark => ready(dry.advance_watermark(peer(2), Watermark(5, 1))).unwrap(),
+        _ => dry_writes = ready(dry.apply_local(1000, &batch)).unwrap(),
     }
     let log = vfs.log();
     let total: u64 = log.iter().map(|&n| n as u64).sum();
@@ -194,11 +169,11 @@ fn run_case(vfs: &FullVfs, level: Level, c: &Case) {
     let store = build(vfs, &path, &c.prefix, c.len);
     let before = sigma(&store, &path);
     let attempt = |s: &SqliteStore| match (level, c.received) {
-        (Level::Watermark, _) => block_on(s.advance_watermark(peer(2), Watermark(5, 1)))
+        (Level::Watermark, _) => ready(s.advance_watermark(peer(2), Watermark(5, 1)))
             .map_err(ApplyError::Store)
             .map(|()| Vec::new()),
-        (_, false) => block_on(s.apply_local(1000, &batch)),
-        (_, true) => block_on(s.apply(&dry_writes)).map(|_| Vec::new()),
+        (_, false) => ready(s.apply_local(1000, &batch)),
+        (_, true) => ready(s.apply(&dry_writes)).map(|_| Vec::new()),
     };
 
     vfs.set_budget(budget);
@@ -296,7 +271,7 @@ fn full_during_advance_watermark() {
 #[test]
 fn full_at_first_opening() {
     let vfs = FullVfs::register("first");
-    let path = dir().join("store.db");
+    let path = fresh_dir("full").join("store.db");
     vfs.set_budget(0);
     let err = SqliteStore::open(&path, &vfs.options()).err();
     assert_eq!(err, Some(StoreError::StorageFull));
@@ -310,27 +285,27 @@ fn full_at_first_opening() {
     }
     vfs.unlimited();
     let s = open(&vfs, &path);
-    assert_ne!(block_on(s.device()).unwrap(), peer(0));
-    assert_eq!(block_on(s.writes_since(Position(0))).unwrap(), vec![]);
+    assert_ne!(ready(s.device()).unwrap(), peer(0));
+    assert_eq!(ready(s.writes_since(Position(0))).unwrap(), vec![]);
 }
 
 /// Q-R1 (b): a no-op write on full storage succeeds, `Σ` unchanged.
 #[test]
 fn no_op_writes_succeed() {
     let vfs = FullVfs::register("noop");
-    let path = dir().join("store.db");
+    let path = fresh_dir("full").join("store.db");
     let s = build(&vfs, &path, &[3], 40);
-    let stored: Vec<Write> = block_on(s.writes_since(Position(0)))
+    let stored: Vec<Write> = ready(s.writes_since(Position(0)))
         .unwrap()
         .into_iter()
         .map(|(_, w)| w)
         .collect();
     let expected = sigma(&s, &path);
     vfs.set_budget(0);
-    block_on(s.apply(&stored)).expect("stored batch");
-    block_on(s.apply(&[])).expect("empty batch");
+    ready(s.apply(&stored)).expect("stored batch");
+    ready(s.apply(&[])).expect("empty batch");
     for to in [Watermark(3, 0), Watermark(1, 0)] {
-        block_on(s.advance_watermark(peer(1), to)).expect("no-op watermark");
+        ready(s.advance_watermark(peer(1), to)).expect("no-op watermark");
     }
     vfs.unlimited();
     assert_eq!(sigma(&s, &path), expected);
@@ -340,7 +315,7 @@ fn no_op_writes_succeed() {
 #[test]
 fn full_existing_store_reads() {
     let vfs = FullVfs::register("reads");
-    let path = dir().join("store.db");
+    let path = fresh_dir("full").join("store.db");
     let s = build(&vfs, &path, &[3, 5], 40);
     let expected = sigma(&s, &path);
     drop(s);
@@ -352,7 +327,7 @@ fn full_existing_store_reads() {
         category: "g".into(),
         id: "r0".into(),
     };
-    assert!(block_on(s.state(&r)).unwrap().is_some());
+    assert!(ready(s.state(&r)).unwrap().is_some());
 }
 
 /// RG-ST02-1.3, DA F-10: `xSync` failure -> `Unavailable(Io)`; live Σ unchanged; after reopen
@@ -362,13 +337,13 @@ fn sync_failure() {
     let vfs = FullVfs::register("sync");
     runner(0x5702_0005, 30)
         .run(&cases(), |c| {
-            let work = dir();
+            let work = fresh_dir("full");
             let path = work.join("store.db");
             let batch = changes(200, c.k, c.len);
             let store = build(&vfs, &path, &c.prefix, c.len);
             let before = sigma(&store, &path);
             vfs.fail_sync(true);
-            let r = block_on(store.apply_local(1000, &batch));
+            let r = ready(store.apply_local(1000, &batch));
             vfs.fail_sync(false);
             assert!(
                 matches!(

@@ -3,14 +3,16 @@
 
 #[path = "support/child.rs"]
 mod child;
+#[path = "support/common.rs"]
+mod common;
 
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use arbitre_core::{Author, DeviceId, LocalChange, Log, Position, Store};
-use arbitre_sqlite::{Options, SqliteStore};
-use child::{Child, Rng, block_on, field_change, fresh_dir, hex, rec, seed};
+use arbitre_core::{Author, Change, DeviceId, LocalChange, Log, Position, Store, ready};
+use child::Child;
+use common::{Rng, fresh_dir, open, raw_k, rec, seed};
 use rusqlite::Connection;
 
 const T: Duration = Duration::from_secs(20);
@@ -20,10 +22,6 @@ fn child_entry() {
     child::child_main();
 }
 
-fn open(path: &Path) -> SqliteStore {
-    SqliteStore::open(path, &Options::default()).expect("reopen after forced stop")
-}
-
 /// Average duration of one 5-change batch (R-6).
 fn commit_micros() -> u64 {
     let dir = fresh_dir("crash-calib");
@@ -31,13 +29,13 @@ fn commit_micros() -> u64 {
     let changes: Vec<LocalChange> = (0..5)
         .map(|i| LocalChange {
             record: rec("c", &format!("calib{i}")),
-            change: field_change("f", b"x"),
+            change: Change::field("f", b"x"),
             author: Author::System,
         })
         .collect();
     let t0 = Instant::now();
     for _ in 0..10 {
-        block_on(store.apply_local(0, &changes)).unwrap();
+        ready(store.apply_local(0, &changes)).unwrap();
     }
     let us = t0.elapsed().as_micros() as u64 / 10;
     drop(store);
@@ -58,14 +56,10 @@ fn kill_after_delay(c: &mut Child, rng: &mut Rng, commit_us: u64) {
     c.kill();
 }
 
-fn field_after<'a>(line: &'a str, prefix: &str) -> Option<&'a str> {
-    line.strip_prefix(prefix)
-}
-
 /// Checks the reopened store against what the children reported (US-1 cases 1-5, 7, 12).
 fn verify(path: &Path, children: &[(u64, Vec<String>)]) {
     let store = open(path);
-    let stored = block_on(store.writes_since(Position(0))).unwrap();
+    let stored = ready(store.writes_since(Position(0))).unwrap();
     let mut groups: BTreeMap<(u64, u64), Vec<_>> = BTreeMap::new();
     for (_, w) in &stored {
         let mut p = w.record.id.split('.');
@@ -83,10 +77,10 @@ fn verify(path: &Path, children: &[(u64, Vec<String>)]) {
                 !l.starts_with("failed") && !l.starts_with("open_failed"),
                 "{l}"
             );
-            if let Some(r) = field_after(l, "start ") {
+            if let Some(r) = l.strip_prefix("start ") {
                 let (b, n) = r.split_once(' ').unwrap();
                 started.insert(b.parse::<u64>().unwrap(), n.parse::<usize>().unwrap());
-            } else if let Some(r) = field_after(l, "confirmed ") {
+            } else if let Some(r) = l.strip_prefix("confirmed ") {
                 let (b, d) = r.split_once(' ').unwrap();
                 confirmed.insert(b.parse::<u64>().unwrap(), d.to_string());
             }
@@ -120,30 +114,25 @@ fn verify(path: &Path, children: &[(u64, Vec<String>)]) {
         }
     }
     // R(W) = reference log fed with every stored write.
-    let mut reference = Log::new(block_on(store.device()).unwrap());
+    let mut reference = Log::new(ready(store.device()).unwrap());
     let all: Vec<_> = stored.iter().map(|(_, w)| w.clone()).collect();
     reference.merge(&all).expect("stored writes merge");
     for (r, state) in reference.projection() {
-        assert_eq!(block_on(store.state(&r)).unwrap(), Some(state), "{r:?}");
+        assert_eq!(ready(store.state(&r)).unwrap(), Some(state), "{r:?}");
     }
     // K covers every stored stamp and the next local stamp is above all of them.
     let top = all.iter().map(|w| (w.stamp.l, w.stamp.c)).max();
-    let raw = Connection::open(path).unwrap();
-    let k: (i64, i64) = raw
-        .query_row("SELECT clock_l, clock_c FROM device", [], |r| {
-            Ok((r.get(0)?, r.get(1)?))
-        })
-        .unwrap();
+    let k = raw_k(&Connection::open(path).unwrap());
     if let Some((l, c)) = top {
         assert!(
             k >= (l as i64, i64::from(c)),
             "K {k:?} below stored stamp {top:?}"
         );
-        let next = block_on(store.apply_local(
+        let next = ready(store.apply_local(
             0,
             &[LocalChange {
                 record: rec("c", "next"),
-                change: field_change("f", b"n"),
+                change: Change::field("f", b"n"),
                 author: Author::System,
             }],
         ))
@@ -232,8 +221,8 @@ fn concurrent_first_opening_50_runs() {
             .collect();
         assert_eq!(ds[0], ds[1], "seed={seed} run={run}: two different D");
         drop(kids);
-        let d = block_on(open(&path).device()).unwrap();
-        assert_eq!(hex(d), ds[0], "seed={seed} run={run}");
+        let d = ready(open(&path).device()).unwrap();
+        assert_eq!(d.hex(), ds[0], "seed={seed} run={run}");
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 }
@@ -254,15 +243,11 @@ fn kill_during_first_opening_50_runs() {
         c.finish();
         let store = open(&path);
         let ctx = format!("seed={seed} run={run}");
-        assert_ne!(
-            block_on(store.device()).unwrap(),
-            DeviceId([0; 16]),
-            "{ctx}"
-        );
+        assert_ne!(ready(store.device()).unwrap(), DeviceId([0; 16]), "{ctx}");
         assert_eq!(store.settings().journal_mode, "wal", "{ctx}");
-        let d = block_on(store.device()).unwrap();
+        let d = ready(store.device()).unwrap();
         drop(store);
-        assert_eq!(block_on(open(&path).device()).unwrap(), d, "{ctx}");
+        assert_eq!(ready(open(&path).device()).unwrap(), d, "{ctx}");
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 }

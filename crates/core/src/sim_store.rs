@@ -14,6 +14,15 @@ use crate::store::{
 };
 use crate::write::{RecordId, Write};
 
+/// Polls `f` once with a no-op waker; a store future must be ready (RG-ST02-6.3).
+pub fn ready<F: core::future::Future>(f: F) -> F::Output {
+    use core::task::{Context, Poll, Waker};
+    match core::pin::pin!(f).poll(&mut Context::from_waker(Waker::noop())) {
+        Poll::Ready(v) => v,
+        Poll::Pending => panic!("store future not ready on first poll (RG-ST02-6.3)"),
+    }
+}
+
 /// Simulated store, deliberately neither `Send` nor `Sync` (RG-ST02-6.2).
 pub struct SimStore {
     state: RefCell<State>,
