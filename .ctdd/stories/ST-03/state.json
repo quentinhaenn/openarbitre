@@ -2,7 +2,7 @@
   "feature": "ST-03 — Action catalogue, derived CLI, exit codes",
   "started_at": "2026-11-04T00:00:00+00:00",
   "source": ".ctdd/cadre/04_plan.md § ST-03",
-  "current_phase": 7,
+  "current_phase": "done",
   "phases": {
     "1_story": {
       "status": "done",
@@ -76,5 +76,6 @@
     }
   },
   "ddd_zone": "supporting",
-  "da_max_iterations": 1
+  "da_max_iterations": 1,
+  "closed_at": "2026-11-05T15:04:55Z"
 }
